@@ -1,0 +1,15 @@
+{$DOMAIN:localhost} {
+    encode zstd gzip
+
+    @public path /health /discord/interactions /feishu/events /feishu/card-actions
+    @internal path /ready /version /tasks* /approvals* /threads* /runs* /council* /docs* /redoc* /openapi.json
+    @missingAdmin {
+        path /ready /version /tasks* /approvals* /threads* /runs* /council* /docs* /redoc* /openapi.json
+        not header X-Internal-Admin-Key *
+    }
+
+    respond @missingAdmin "internal admin key required" 403
+    reverse_proxy @public api:8000
+    reverse_proxy @internal api:8000
+    respond "not found" 404
+}

@@ -1,0 +1,40 @@
+{
+  "registry_version": "0.1.0",
+  "status": "draft",
+  "source_policy": "External Agent SOP/BMAD/Claude Code/Cursor/LangGraph methods are used as structure references only; no external runtime dependency is required.",
+  "trigger_priority": [
+    "always",
+    "auto_attached",
+    "agent_requested",
+    "manual"
+  ],
+  "max_refs_per_node": {
+    "primary_sop": 1,
+    "review_sop": 2
+  },
+  "sops": [
+    {
+      "sop_id": "task-intake-double-check",
+      "version": "0.1.0",
+      "title": "Task Intake Double Check",
+      "scope": "business.task_intake",
+      "trigger_policy": "always",
+      "content_ref": "sop://business/task-intake-double-check/0.1.0",
+      "path": "business/task-intake-double-check.sop.md",
+      "summary": "Parse user input into sourced CanonicalTaskBrief fields and require user confirmation before graph dispatch.",
+      "status": "draft"
+    },
+    {
+      "sop_id": "artifact-review-gate",
+      "version": "0.1.0",
+      "title": "Artifact Review Gate",
+      "scope": "review.artifact_quality",
+      "trigger_policy": "always",
+      "content_ref": "sop://reviewers/artifact-review-gate/0.1.0",
+      "path": "reviewers/artifact-review-gate.sop.md",
+      "summary": "Review one artifact at a time and route pass, needs_fix, or needs_human through conditional edges.",
+      "status": "draft"
+    }
+  ]
+}
+

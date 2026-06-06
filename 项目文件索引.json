@@ -1,0 +1,616 @@
+{
+  "project_name": "AI 猎头隔离 Agent 协作系统",
+  "project_root": "/Users/w/Documents/lietou",
+  "current_stage": "Discord First PRD/工程文档/操作手册已重生成并补充可执行 SOPRegistry/ReviewGate/Double Check/Memory scope/SearchGateway 事实边界方案；后端 Docker Compose 部署底座已补齐 api/worker/postgres/caddy；当前代码已完成 Phase 15 全项目逻辑审查修复，内部控制面受 INTERNAL_ADMIN_API_KEY 保护，Feishu/Bitable 为 deferred adapter，Discord interaction、double check、ReviewGate、AgentSOPRegistry 和 memory retention job 尚未实现",
+  "canonical_docs": {
+    "memory": "/Users/w/Documents/lietou/任务记忆文档.md",
+    "human_index": "/Users/w/Documents/lietou/项目文件索引.md",
+    "machine_index": "/Users/w/Documents/lietou/项目文件索引.json",
+    "collaboration_rules": "/Users/w/Documents/lietou/AGENTS.md",
+    "gitignore": "/Users/w/Documents/lietou/.gitignore",
+    "dockerignore": "/Users/w/Documents/lietou/.dockerignore",
+    "env_example": "/Users/w/Documents/lietou/.env.example",
+        "dockerfile": "/Users/w/Documents/lietou/Dockerfile",
+        "caddyfile": "/Users/w/Documents/lietou/Caddyfile",
+        "readme": "/Users/w/Documents/lietou/README.md",
+        "readme_role": "GitHub public product landing README with Chinese product introduction, quick start, user workflow, troubleshooting, upload-to-GitHub steps, and collapsible English Quick Start",
+        "alembic": "/Users/w/Documents/lietou/alembic.ini",
+    "docker_compose": "/Users/w/Documents/lietou/docker-compose.yml",
+    "docker_entrypoint": "/Users/w/Documents/lietou/scripts/docker-entrypoint.sh",
+    "pyproject": "/Users/w/Documents/lietou/pyproject.toml",
+    "project_prompt": "/Users/w/Documents/lietou/项目prompt.md"
+  },
+  "prd": {
+    "full_prd": "/Users/w/Documents/lietou/docs/prd/AI猎头作战系统_PRD_完整拼接版.md",
+    "build_guide": "/Users/w/Documents/lietou/docs/prd/ai猎头_agent体系_codex搭建说明.md",
+    "modules_dir": "/Users/w/Documents/lietou/docs/prd/modules",
+    "module_count": 14,
+    "modules": [
+      "00_总PRD_拼接入口.md",
+      "01_产品总纲_顶级猎头工作流.md",
+      "02_三省六部会审层_PRD.md",
+      "03_数据体系与案例导入_PRD.md",
+      "04_Mapping子系统_PRD.md",
+      "05_LangGraph业务工作流_PRD.md",
+      "06_Discord工作台_PRD.md",
+      "07_质量合规与安全_PRD.md",
+      "08_工程代码设计_PRD.md",
+      "09_测试验收与模拟执行_PRD.md",
+      "10_运行时调用与部署_PRD.md",
+      "11_Agent隔离与容器化架构_PRD.md",
+      "12_Agent协作可观测记忆Harness_PRD.md",
+      "13_Discord工作台与AgentSOP交付_PRD.md"
+    ]
+  },
+  "engineering_docs": {
+    "dir": "/Users/w/Documents/lietou/docs/engineering",
+    "files": [
+      "00_实施总路线图.md",
+      "01_接口总览.md",
+      "02_数据库设计.md",
+      "03_Discord接入设计.md",
+      "03_飞书接入设计.md",
+      "04_Agent与ContextPack设计.md",
+      "05_测试验收计划.md"
+    ],
+    "purpose": "工程实施施工图，覆盖分阶段计划、接口、数据库、Discord First、Feishu deferred adapter、Agent/ContextPack、ReviewGate、SOPRegistry、记忆治理和测试验收",
+    "review_status": "本轮文档切换为 Discord First；真实 Discord 联调未验证"
+  },
+  "agent_sops": {
+    "dir": "/Users/w/Documents/lietou/docs/agent-sops",
+    "files": [
+      "README.md",
+      "registry.json",
+      "business/task-intake-double-check.sop.md",
+      "reviewers/artifact-review-gate.sop.md",
+      "workflows/discord-task-to-graph.workflow.md",
+      "checklists/prd-executable-quality.checklist.md",
+      "templates/sop.template.md"
+    ],
+    "purpose": "本项目 AgentSOPRegistry 的可执行文档骨架，覆盖 task intake double check、artifact-level ReviewGate、Discord task-to-graph workflow、PRD checklist 和 SOP 模板",
+    "status": "draft documentation only; runtime AgentSOPRegistry 尚未实现"
+  },
+  "career_docs": {
+    "dir": "/Users/w/Documents/lietou/docs/career",
+    "files": [
+      "AI猎头作战系统_简历项目总结.md",
+      "智能客服机器人运营_JD简历关键词与改写建议.md",
+      "京东产品方向AI类HR场景_JD简历关键词与改写建议.md"
+    ],
+    "purpose": "求职材料，覆盖产品方向解决方案岗位的项目表达与技术复盘、科技集团成都客服中心智能产品/服务机器人运营 JD，以及京东集团北京产品方向 AI 类 HR 真实业务场景 JD 的简历关键词、能力突出点、项目改写 bullet 和面试讲法"
+  },
+  "manuals": {
+    "dir": "/Users/w/Documents/lietou/docs/manual",
+    "files": [
+      "本地部署与使用手册.md",
+      "Discord接入操作手册.md",
+      "飞书接入操作手册.md",
+      "数据准备与调用手册.md",
+      "猎头日常使用手册.md",
+      "故障排查手册.md"
+    ],
+    "purpose": "面向用户和人工接入的部署、Discord 接入、Feishu deferred adapter、数据、日常使用和故障排查手册；已同步 field_source/confidence double check、冻结版 CanonicalTaskBrief、artifact-level ReviewGate、MemoryGateway scope filter、SearchGateway 当前事实和简历/JD artifact 优先边界"
+  },
+  "planned_stack": {
+    "backend": "FastAPI",
+    "workflow": "LangGraph",
+    "database": "PostgreSQL + pgvector first-version runtime; SQLite only for temporary personal experiments",
+    "orm": "SQLAlchemy",
+    "schemas": "Pydantic",
+    "feishu": "Deferred adapter only; current historical code may be reused but is not first-version main path",
+    "tests": "pytest, ruff, fake/mock gateway contract tests",
+    "workspace": "Discord First: slash commands, buttons, select menus, modals, War Room threads/messages",
+    "agent_architecture": "Frozen CanonicalTaskBrief + sourced structured artifacts + artifact-level ReviewGate + AgentSOPRegistry; no free agent-to-agent chat",
+    "memory": "PostgreSQL + pgvector MemoryGateway with tenant/guild/user/project/requisition/candidate scope filter and 30d / 90d / permanent retention policy",
+    "deployment": "Docker Compose server baseline with api, worker, postgres(pgvector), and caddy HTTPS reverse proxy"
+  },
+  "phase1_code": {
+    "backend_entry": "/Users/w/Documents/lietou/app/main.py",
+    "internal_auth": "/Users/w/Documents/lietou/app/api/auth.py",
+    "api_dir": "/Users/w/Documents/lietou/app/api",
+    "schemas_dir": "/Users/w/Documents/lietou/app/schemas",
+    "policy_engine": "/Users/w/Documents/lietou/app/policy/engine.py",
+    "gateway_interfaces": "/Users/w/Documents/lietou/app/gateways/interfaces.py",
+    "context_pack_builder": "/Users/w/Documents/lietou/app/harness/context_pack.py",
+    "tests_dir": "/Users/w/Documents/lietou/tests",
+    "implemented_endpoints": [
+      "GET /health",
+      "GET /ready",
+      "GET /version",
+      "POST /council/deliberate",
+      "POST /tasks/authorize",
+      "GET /threads/{thread_id}",
+      "GET /runs/{run_id}",
+      "GET /approvals/{interrupt_id}",
+      "POST /approvals/{interrupt_id}/decision",
+      "POST /feishu/events",
+      "POST /feishu/card-actions",
+      "POST /discord/interactions (planned)",
+      "POST /discord/commands/register (planned)"
+    ],
+    "review_status": "Phase 1 历史代码审查曾通过；Discord First 新入口尚未实现和验证"
+  },
+  "phase2_code": {
+    "docker_compose": "/Users/w/Documents/lietou/docker-compose.yml",
+    "dockerfile": "/Users/w/Documents/lietou/Dockerfile",
+    "dockerignore": "/Users/w/Documents/lietou/.dockerignore",
+    "caddyfile": "/Users/w/Documents/lietou/Caddyfile",
+    "docker_entrypoint": "/Users/w/Documents/lietou/scripts/docker-entrypoint.sh",
+    "alembic_config": "/Users/w/Documents/lietou/alembic.ini",
+    "migration_env": "/Users/w/Documents/lietou/migrations/env.py",
+    "initial_migration": "/Users/w/Documents/lietou/migrations/versions/20260602_0001_initial_schema.py",
+    "memory_scope_migration": "/Users/w/Documents/lietou/migrations/versions/20260605_0002_memory_scope_filters.py",
+    "database_session": "/Users/w/Documents/lietou/app/storage/database.py",
+    "models": "/Users/w/Documents/lietou/app/storage/models.py",
+    "repositories": "/Users/w/Documents/lietou/app/storage/repositories.py",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_storage_models.py",
+      "/Users/w/Documents/lietou/tests/test_storage_repositories.py",
+      "/Users/w/Documents/lietou/tests/test_migrations.py"
+    ],
+    "implemented_tables": [
+      "requisitions",
+      "candidates",
+      "candidate_requisition_matches",
+      "talent_map_items",
+      "graph_threads",
+      "agent_runs",
+      "agent_artifacts",
+      "artifact_blobs",
+      "content_access_audits",
+      "memory_items",
+      "memory_embeddings",
+      "memory_retrieval_audits",
+      "memory_update_proposals",
+      "feishu_event_logs",
+      "feishu_outbox",
+      "feishu_card_actions",
+      "feishu_bitable_record_map",
+      "feishu_bitable_write_chunks",
+      "action_proposals",
+      "human_approvals",
+      "import_runs",
+      "discord_installations (planned)",
+      "discord_event_logs (planned)",
+      "discord_outbox (planned)",
+      "discord_interactions (planned)",
+      "discord_message_map (planned)"
+    ],
+    "review_status": "历史 PostgreSQL/Feishu 表已实现；MemoryGateway scope filter 迁移已新增并补充精细兼容过滤；Docker Compose 部署底座已补齐；Discord 主链路表已进入文档设计，尚未实现",
+    "unverified": [
+      "真实服务器 docker compose up -d --build 尚未验证",
+      "真实 PostgreSQL 在线 alembic upgrade head 未验证，因为当前未启动 PostgreSQL 服务"
+    ]
+  },
+  "phase3_code": {
+    "feishu_callbacks": "/Users/w/Documents/lietou/app/feishu/callbacks.py",
+    "feishu_service": "/Users/w/Documents/lietou/app/feishu/service.py",
+    "feishu_dispatcher": "/Users/w/Documents/lietou/app/feishu/dispatcher.py",
+    "api_entry": "/Users/w/Documents/lietou/app/api/feishu.py",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_feishu_callbacks.py",
+      "/Users/w/Documents/lietou/tests/test_feishu_dispatcher.py"
+    ],
+    "implemented_capabilities": [
+      "event callback Verification Token validation",
+      "event callback Encrypt Key SHA-256 signature validation and decrypt",
+      "event URL challenge response",
+      "event payload ArtifactBlob storage",
+      "FeishuEventLog plus graph_dispatch outbox enqueue before ACK",
+      "card.action.trigger callback SHA-1 Verification Token signature validation",
+      "card action parsing for thread_id/action_id/interrupt_id/idempotency_key/decision",
+      "FeishuCardAction plus HumanApproval plus resume outbox enqueue",
+      "outbox claim recovery, retry, dead letter, explicit commit and rollback"
+    ],
+    "review_status": "Phase 3 飞书集成/代码审查 Agent 二次复核返回无阻断问题",
+    "unverified": [
+      "真实飞书后台回调未验证，因为当前没有真实飞书应用和公网 HTTPS 回调地址",
+      "真实 PostgreSQL 在线入库 ACK 未验证，因为当前未启动 PostgreSQL 服务",
+      "真实 FeishuGateway / BitableGateway / War Room 卡片发送未实现"
+    ]
+  },
+  "phase4_code": {
+    "feishu_gateways": "/Users/w/Documents/lietou/app/feishu/gateways.py",
+    "feishu_outbox_handlers": "/Users/w/Documents/lietou/app/feishu/outbox_handlers.py",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_feishu_gateways.py",
+      "/Users/w/Documents/lietou/tests/test_feishu_outbox_handlers.py"
+    ],
+    "implemented_capabilities": [
+      "tenant_access_token internal app auth fetch/cache/refresh",
+      "Feishu card send via im/v1/messages receive_id_type=chat_id",
+      "Feishu card update via PATCH im/v1/messages/:message_id",
+      "Feishu Bitable batch_create with query client_token",
+      "UUIDv4 validation for Bitable client_token",
+      "401/token code refresh once",
+      "429 Retry-After propagation including non-JSON 429",
+      "outbox handler routing for card_send/card_update/bitable_write",
+      "graph_dispatch guarded until real AgentHarness is wired",
+      "resume guarded until AgentHarness, ActionGate, and ActionExecutor are wired",
+      "bitable_write requires an approved ActionProposal before calling Feishu"
+    ],
+    "review_status": "Phase 4 飞书网关/outbox handler 审查 Agent 二次复核返回无阻断问题",
+    "unverified": [
+      "真实飞书 OpenAPI 调用未验证，因为当前没有真实飞书应用配置",
+      "真实 Bitable 写入未验证，因为当前没有真实表权限和 PostgreSQL worker",
+      "graph_dispatch 已在 Phase 6 支持真实 AgentHarness 装配后放行；resume 已在 Phase 7 支持真实三件套装配后放行；真实 PostgreSQL checkpointer 尚未联调"
+    ]
+  },
+  "phase5_code": {
+    "artifact_repository": "/Users/w/Documents/lietou/app/artifacts/repository.py",
+    "memory_gateway": "/Users/w/Documents/lietou/app/memory/gateway.py",
+    "vector_memory_store": "/Users/w/Documents/lietou/app/memory/vector_store.py",
+    "war_room_graph": "/Users/w/Documents/lietou/app/graphs/war_room.py",
+    "runtime_graph_factory": "/Users/w/Documents/lietou/app/runtime/graph_factory.py",
+    "runtime_outbox": "/Users/w/Documents/lietou/app/runtime/outbox.py",
+    "storage_repositories": "/Users/w/Documents/lietou/app/storage/repositories.py",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_artifact_repository.py",
+      "/Users/w/Documents/lietou/tests/test_bitable_sync_repository.py",
+      "/Users/w/Documents/lietou/tests/test_memory_gateway.py",
+      "/Users/w/Documents/lietou/tests/test_runtime_graph.py",
+      "/Users/w/Documents/lietou/tests/test_runtime_outbox.py"
+    ],
+    "implemented_capabilities": [
+      "ArtifactStore summary/ref storage with audited content reads and denied audit",
+      "MemoryGateway retrieval with policy scopes, active status, PII, top-k, token budget, content_ref dedupe, and retrieval audit",
+      "RunMemory auto active/vectorized and long-term memory pending_review proposal flow",
+      "PostgresVectorMemoryStore pgvector active memory query and memory-id based embedding upsert",
+      "LangGraph minimal headhunter_war_room_graph -> council_deliberation_graph -> business subgraph",
+      "subgraph delta wrapper to avoid reducer duplicate append",
+      "RuntimeGraphFactory PostgreSQL checkpointer context manager",
+      "runtime outbox payload conversion with RuntimeNotReady guard against fake production success",
+      "BitableSyncRepository chunk success, record_id mapping, length validation, and client_token conflict audit"
+    ],
+    "review_status": "Phase 5 代码审查 Agent 二次复核返回无阻断问题",
+    "unverified": [
+      "真实 PostgreSQL 在线迁移未验证，因为当前未启动 PostgreSQL 服务",
+      "真实 LangGraph PostgreSQL checkpointer setup 未验证，因为当前未启动 PostgreSQL 服务",
+      "真实 AgentHarness/LLMGateway/AgentRuns/War Room 卡片已在 Phase 6 接入基础路径",
+      "真实 interrupt/action gate/resume 本地路径已在 Phase 7 接入，真实 PostgreSQL checkpointer 尚未联调",
+      "真实飞书后台回调、OpenAPI 卡片发送/更新和 Bitable 写入尚未联调"
+    ]
+  },
+  "phase6_code": {
+    "agent_schemas": "/Users/w/Documents/lietou/app/schemas/agent.py",
+    "agent_harness": "/Users/w/Documents/lietou/app/harness/agent_harness.py",
+    "llm_gateway": "/Users/w/Documents/lietou/app/gateways/llm.py",
+    "embedding_gateway": "/Users/w/Documents/lietou/app/gateways/embeddings.py",
+    "war_room_cards": "/Users/w/Documents/lietou/app/feishu/cards.py",
+    "war_room_notifier": "/Users/w/Documents/lietou/app/runtime/war_room.py",
+    "action_gate": "/Users/w/Documents/lietou/app/runtime/action_gate.py",
+    "runtime_dependencies": "/Users/w/Documents/lietou/app/runtime/dependencies.py",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_llm_gateway.py",
+      "/Users/w/Documents/lietou/tests/test_embedding_gateway.py",
+      "/Users/w/Documents/lietou/tests/test_runtime_dependencies.py",
+      "/Users/w/Documents/lietou/tests/test_agent_harness.py",
+      "/Users/w/Documents/lietou/tests/test_war_room_cards.py",
+      "/Users/w/Documents/lietou/tests/test_war_room_outbox.py",
+      "/Users/w/Documents/lietou/tests/test_action_gate.py"
+    ],
+    "implemented_capabilities": [
+      "AgentHarness builds minimal ContextPack from typed AgentTask only",
+      "AgentHarness writes GraphThread, AgentRuns, ContextPack blob, ArtifactStore, RunMemory, and War Room card outbox",
+      "OpenAI Responses LLMGateway sends ContextPack plus strict JSON schema only",
+      "OpenAI EmbeddingGateway supports batch embeddings and response ordering",
+      "Runtime dependency factory wires OpenAI LLM, OpenAI embedding, pgvector MemoryGateway, AgentHarness, and RuntimeGraphFactory",
+      "War Room cards show council_mode, mode_reason, artifact_refs, memory_refs, and token estimate without raw prompt",
+      "ActionGate creates ActionProposal and approval cards but does not execute side effects",
+      "ActionGate reuses existing proposal for duplicate idempotency_key",
+      "LangGraph uses AgentHarness when wired and avoids reducer duplication through input_artifact_refs",
+      "graph_dispatch is allowed only with real harness wiring; resume is allowed only when AgentHarness, ActionGate, and ActionExecutor are wired"
+    ],
+    "review_status": "Phase 6 子 agent 审查因外部用量限制未返回；已执行本地 code-review 并修复 OpenAI strict schema 与 ActionGate idempotency 问题",
+    "unverified": [
+      "真实 OpenAI LLM API 调用未验证，因为当前没有真实 API Key",
+      "真实 OpenAI embedding API 调用未验证，因为当前没有真实 API Key",
+      "真实 PostgreSQL 在线迁移和 checkpointer setup 未验证，因为当前未启动 PostgreSQL 服务",
+      "真实 PostgreSQL checkpointer 下的 LangGraph interrupt/resume 尚未验证",
+      "报告发布、飞书任务、外部触达和推荐结论提交等非 Bitable 业务副作用尚未实现",
+      "真实飞书后台回调、OpenAPI 卡片发送/更新和 Bitable 写入尚未联调"
+    ]
+  },
+  "phase7_code": {
+    "action_executor": "/Users/w/Documents/lietou/app/runtime/action_executor.py",
+    "war_room_graph": "/Users/w/Documents/lietou/app/graphs/war_room.py",
+    "runtime_graph_factory": "/Users/w/Documents/lietou/app/runtime/graph_factory.py",
+    "runtime_outbox": "/Users/w/Documents/lietou/app/runtime/outbox.py",
+    "feishu_callbacks": "/Users/w/Documents/lietou/app/feishu/callbacks.py",
+    "feishu_cards": "/Users/w/Documents/lietou/app/feishu/cards.py",
+    "feishu_outbox_handlers": "/Users/w/Documents/lietou/app/feishu/outbox_handlers.py",
+    "storage_repositories": "/Users/w/Documents/lietou/app/storage/repositories.py",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_action_executor.py",
+      "/Users/w/Documents/lietou/tests/test_runtime_graph.py",
+      "/Users/w/Documents/lietou/tests/test_runtime_outbox.py",
+      "/Users/w/Documents/lietou/tests/test_storage_repositories.py",
+      "/Users/w/Documents/lietou/tests/test_feishu_outbox_handlers.py"
+    ],
+    "implemented_capabilities": [
+      "business routes create or reuse ActionProposal before interrupt",
+      "LangGraph emits real interrupt payload with thread_id/action_id/interrupt_id/idempotency_key/payload_ref",
+      "Command(resume=HumanApproval) resumes the same thread_id",
+      "ActionExecutor validates approval against ActionProposal before queueing side effects",
+      "approve/edit queues durable bitable_write outbox; reject does not write business data",
+      "Feishu card callbacks require interrupt_id and must match pending ActionProposal",
+      "approval card approve/reject values share one action idempotency_key",
+      "bitable_write handler requires action_id and approved ActionProposal"
+    ],
+    "review_status": "Phase 7 只读审查 Agent 返回 interrupt/resume 风险点；已修复 ActionGate 并发幂等、确认卡单 action 单 key、interrupt_id 必填、pending ActionProposal 校验和 Bitable 写入审批校验",
+    "unverified": [
+      "真实 PostgreSQL checkpointer interrupt/resume 尚未验证，因为当前未启动 PostgreSQL 服务",
+      "真实 OpenAI LLM/embedding API 调用未验证，因为当前没有真实 API Key",
+      "真实飞书后台回调、OpenAPI 卡片发送/更新和 Bitable 写入尚未联调"
+    ]
+  },
+  "phase8_code": {
+    "worker": "/Users/w/Documents/lietou/app/runtime/worker.py",
+    "env_example": "/Users/w/Documents/lietou/.env.example",
+    "pyproject": "/Users/w/Documents/lietou/pyproject.toml",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_runtime_worker.py"
+    ],
+    "implemented_capabilities": [
+      "build_feishu_outbox_dispatcher wires FeishuGateway, BitableGateway, LangGraphOutboxHandler, RuntimeGraphFactory, AgentHarness, ActionGate, ActionExecutor, and BitableSyncRepository",
+      "dispatch_once processes one durable outbox item using the production dependency graph",
+      "run_worker_loop polls durable outbox with OUTBOX_POLL_SECONDS",
+      "lietou-outbox-worker CLI supports default loop and --once mode"
+    ],
+    "review_status": "本地实现和测试通过；尚未真实 PostgreSQL/Feishu 联调",
+    "unverified": [
+      "真实 PostgreSQL 中 worker 领取 outbox 未验证，因为当前未启动 PostgreSQL 服务",
+      "真实 graph_dispatch/resume 未验证，因为当前没有真实 PostgreSQL checkpointer 和飞书回调",
+      "真实 Feishu OpenAPI 和 Bitable 写入尚未联调"
+    ]
+  },
+  "phase9_code": {
+    "readiness": "/Users/w/Documents/lietou/app/core/readiness.py",
+    "config_check_cli": "/Users/w/Documents/lietou/app/runtime/config_check.py",
+    "health_api": "/Users/w/Documents/lietou/app/api/health.py",
+    "system_schemas": "/Users/w/Documents/lietou/app/schemas/system.py",
+    "pyproject": "/Users/w/Documents/lietou/pyproject.toml",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_config_check.py",
+      "/Users/w/Documents/lietou/tests/test_health.py"
+    ],
+    "implemented_capabilities": [
+      "GET /ready returns status, checks, details, missing_required, and next_steps",
+      "readiness diagnostics cover PostgreSQL, pgvector, OpenAI LLM/embedding, Feishu OpenAPI, Feishu callbacks, War Room chat, Bitable tables, and worker polling",
+      "python -m app.runtime.config_check prints the same diagnostics without exposing secrets",
+      "lietou-config-check --strict exits non-zero when required first-version runtime configuration is missing"
+    ],
+    "review_status": "本地实现和 focused 测试通过；子 agent Franklin 因外部用量限制未返回；已执行本地 backend/Feishu/code-review 复核",
+    "unverified": [
+      "配置检查只验证环境变量是否齐全，不验证真实 PostgreSQL 网络连接",
+      "配置检查不验证真实 OpenAI Key 是否可用",
+      "配置检查不验证飞书权限、回调公网可达性或 Bitable 表真实可访问性"
+    ]
+  },
+  "phase10_code": {
+    "postgres_smoke": "/Users/w/Documents/lietou/app/runtime/postgres_smoke.py",
+    "pyproject": "/Users/w/Documents/lietou/pyproject.toml",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_postgres_smoke.py"
+    ],
+    "implemented_capabilities": [
+      "python -m app.runtime.postgres_smoke checks PostgreSQL SELECT 1, pgvector extension, Alembic head, and LangGraph PostgresSaver.setup()",
+      "lietou-postgres-smoke CLI exits non-zero on failed smoke checks",
+      "--skip-checkpointer-setup checks database access and migrations without running PostgresSaver.setup()",
+      "tests use fake engine and fake checkpointer probe so CI does not claim real PostgreSQL verification"
+    ],
+    "review_status": "本地实现和 focused 测试通过；尚未真实 PostgreSQL 联调",
+    "unverified": [
+      "真实 PostgreSQL 连接未验证，因为当前未启动 PostgreSQL 服务",
+      "真实 pgvector extension 查询未验证",
+      "真实 Alembic 在线 head 未验证",
+      "真实 LangGraph PostgresSaver.setup() 未验证"
+    ]
+  },
+  "phase11_code": {
+    "external_smoke": "/Users/w/Documents/lietou/app/runtime/external_smoke.py",
+    "feishu_gateways": "/Users/w/Documents/lietou/app/feishu/gateways.py",
+    "pyproject": "/Users/w/Documents/lietou/pyproject.toml",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_external_smoke.py",
+      "/Users/w/Documents/lietou/tests/test_feishu_gateways.py"
+    ],
+    "implemented_capabilities": [
+      "python -m app.runtime.external_smoke checks Feishu tenant token, default chat info, Bitable records/search, OpenAI embeddings, and OpenAI Responses",
+      "lietou-external-smoke CLI supports --skip-feishu, --skip-bitable, --skip-openai, and --skip-llm",
+      "Feishu smoke uses read-only or low-side-effect APIs and does not send cards or write Bitable records",
+      "tests use fake Feishu and fake OpenAI clients so CI does not claim real external verification"
+    ],
+    "review_status": "本地实现和 focused 测试通过；尚未真实 Feishu/OpenAI 联调",
+    "unverified": [
+      "真实 Feishu tenant token 未验证",
+      "真实默认群信息读取未验证",
+      "真实 Bitable records/search 未验证",
+      "真实 OpenAI embedding 和 Responses 未验证"
+    ]
+  },
+  "phase12_code": {
+    "tasks_api": "/Users/w/Documents/lietou/app/api/tasks.py",
+    "task_schemas": "/Users/w/Documents/lietou/app/schemas/tasks.py",
+    "task_authorization_service": "/Users/w/Documents/lietou/app/runtime/task_authorization.py",
+    "storage_repositories": "/Users/w/Documents/lietou/app/storage/repositories.py",
+    "models": "/Users/w/Documents/lietou/app/storage/models.py",
+    "initial_migration": "/Users/w/Documents/lietou/migrations/versions/20260602_0001_initial_schema.py",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_task_authorization.py",
+      "/Users/w/Documents/lietou/tests/test_storage_models.py",
+      "/Users/w/Documents/lietou/tests/test_storage_repositories.py"
+    ],
+    "implemented_capabilities": [
+      "POST /tasks/authorize is protected by INTERNAL_ADMIN_API_KEY, defaults approved=false, and returns council_mode, mode_reason, source_ref, idempotency_key, and outbox_payload_ref only when explicitly approved",
+      "TaskAuthorizationService creates or reuses a queued GraphThread and enqueues feishu_outbox kind graph_dispatch only when approved=true",
+      "Task authorization writes only internal authorization payload/outbox state and does not synchronously run graph or execute business side effects",
+      "missing source_ref resolves to stable request:<hash> with stable thread_id/task_id to avoid duplicate outbox and orphan graph threads",
+      "GraphThread status supports queued and defaults to queued before AgentHarness moves it to running",
+      "FeishuOutboxWriteRepository returns existing payload_ref for duplicate idempotency_key and raises OutboxPayloadConflictError when the duplicate key has a different payload hash",
+      "TaskAuthorizationService maps outbox payload conflicts and cross-source thread_id reuse to 409 conflicts"
+    ],
+    "review_status": "本地实现、focused 测试和本地 code-review 通过；两个只读 subagent 因外部用量限制未返回",
+    "unverified": [
+      "真实 PostgreSQL worker 领取 /tasks/authorize 产生的 graph_dispatch 未验证",
+      "真实 PostgreSQL checkpointer 下 graph_dispatch -> interrupt -> resume 未验证",
+      "真实 deferred Feishu card/Bitable 写入尚未联调"
+    ]
+  },
+  "phase13_code": {
+    "inspection_api": "/Users/w/Documents/lietou/app/api/inspection.py",
+    "inspection_service": "/Users/w/Documents/lietou/app/runtime/inspection.py",
+    "inspection_schemas": "/Users/w/Documents/lietou/app/schemas/inspection.py",
+    "api_router": "/Users/w/Documents/lietou/app/api/router.py",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_inspection_api.py"
+    ],
+    "implemented_capabilities": [
+      "GET /threads/{thread_id} returns GraphThread state_summary, artifact refs, memory refs, pending interrupts, and recent AgentRun summaries",
+      "GET /runs/{run_id} returns AgentRun audit summary, context_pack_ref, refs, token estimate, status, and error",
+      "inspection APIs return refs and summaries only and do not read ArtifactBlob full content or raw prompts",
+      "missing thread/run returns 404"
+    ],
+    "review_status": "本地实现、focused 测试和本地 code-review 通过；未调用额外 subagent 以节省受限用量",
+    "unverified": [
+      "真实 PostgreSQL 中 thread/run 查询未验证",
+      "真实 War Room 卡片点击后的 pending interrupt 查询未验证"
+    ]
+  },
+  "phase14_code": {
+    "approvals_api": "/Users/w/Documents/lietou/app/api/approvals.py",
+    "approvals_service": "/Users/w/Documents/lietou/app/runtime/approvals.py",
+    "approval_schemas": "/Users/w/Documents/lietou/app/schemas/approval.py",
+    "runtime_outbox": "/Users/w/Documents/lietou/app/runtime/outbox.py",
+    "api_router": "/Users/w/Documents/lietou/app/api/router.py",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_approvals_api.py",
+      "/Users/w/Documents/lietou/tests/test_runtime_outbox.py"
+    ],
+    "implemented_capabilities": [
+      "GET /approvals/{interrupt_id} returns pending ActionProposal summary and can_decide without reading ArtifactBlob content",
+      "POST /approvals/{interrupt_id}/decision accepts approve/reject/edit and requires edited_payload for edit",
+      "ApprovalService writes HumanApproval and feishu_outbox kind resume only; it does not call ActionExecutor or execute business side effects synchronously",
+      "already handled ActionProposal responses do not requeue resume; duplicate same decision returns duplicate and conflicting decision returns 409",
+      "duplicate edit decisions compare edited_payload; different edited payloads return conflict instead of silently reusing old resume payloads",
+      "LangGraphOutboxHandler can convert direct human_approval payloads from internal approvals while preserving Feishu card payload conversion",
+      "Feishu card payloads, direct resume payloads, graph normalize, and ActionExecutor reject edit decisions without non-empty edited_payload"
+    ],
+    "review_status": "本地实现、focused 测试、全量测试和本地 code-review 通过；只读审查 Agent Socrates 发现重复 edit payload 比较和无 payload edit 兜底问题，已修复",
+    "unverified": [
+      "真实 PostgreSQL 中 /approvals 查询和提交未验证",
+      "真实 PostgreSQL checkpointer 下 approvals decision -> worker -> resume -> ActionExecutor -> Bitable write 端到端未验证",
+      "真实飞书卡片点击和内部审批 API 混合使用的端到端幂等未验证"
+    ]
+  },
+  "phase15_code": {
+    "internal_auth": "/Users/w/Documents/lietou/app/api/auth.py",
+    "readiness": "/Users/w/Documents/lietou/app/core/readiness.py",
+    "config_check": "/Users/w/Documents/lietou/app/runtime/config_check.py",
+    "caddyfile": "/Users/w/Documents/lietou/Caddyfile",
+    "docker_compose": "/Users/w/Documents/lietou/docker-compose.yml",
+    "memory_scope_migration": "/Users/w/Documents/lietou/migrations/versions/20260605_0002_memory_scope_filters.py",
+    "tests": [
+      "/Users/w/Documents/lietou/tests/test_health.py",
+      "/Users/w/Documents/lietou/tests/test_config_check.py",
+      "/Users/w/Documents/lietou/tests/test_task_authorization.py",
+      "/Users/w/Documents/lietou/tests/test_feishu_callbacks.py",
+      "/Users/w/Documents/lietou/tests/test_memory_gateway.py",
+      "/Users/w/Documents/lietou/tests/test_storage_models.py"
+    ],
+    "implemented_capabilities": [
+      "Internal control APIs require INTERNAL_ADMIN_API_KEY via X-Internal-Admin-Key or Bearer token",
+      "Docker/prod runtime disables FastAPI docs/openapi routes",
+      "Caddy only exposes /health, future /discord/interactions, and deferred Feishu callback paths by default",
+      "Readiness treats Feishu/Bitable as deferred warnings and reports Discord interactions as unimplemented warning",
+      "Task authorization defaults approved=false and maps idempotency/thread conflicts to 409",
+      "Feishu card action callbacks require signed timestamp/nonce/signature within a 5 minute window",
+      "MemoryGateway fails closed without thread or tenant/guild/user/project/requisition/candidate scope filters",
+      "PostgresVectorMemoryStore upsert uses the persisted memory_id for memory_embeddings FK"
+    ],
+    "review_status": "六个只读审查 agent 的 blocker/high 已修复；本地 ruff 和 pytest 通过",
+    "unverified": [
+      "docker compose config/build/up 未验证，因为当前环境没有 docker 命令",
+      "真实服务器 Caddy HTTPS 和 admin key 路径拦截未验证",
+      "真实 PostgreSQL 在线 migration/checkpointer 未验证",
+      "真实 Discord interactions 未实现未验证",
+      "真实 Feishu/Bitable deferred adapter 联调未验证"
+    ]
+  },
+  "front_end_entry": null,
+  "back_end_entry": "/Users/w/Documents/lietou/app/main.py",
+  "key_modules": [
+    "headhunter_war_room_graph",
+    "council_deliberation_graph",
+    "policy-engine",
+    "AgentHarness",
+    "ArtifactStore",
+    "SearchGateway",
+    "DatabaseGateway",
+    "MemoryGateway",
+    "VectorMemoryStore",
+    "EmbeddingGateway",
+    "LLMGateway",
+    "ContextPack",
+    "ActionGateway",
+    "ActionGate",
+    "ActionExecutor",
+    "InternalAdminAuth",
+    "ChannelGateway",
+    "DiscordGateway",
+    "FeishuOutboxDispatcher",
+    "ReadinessDiagnostics",
+    "PostgresSmokeCheck",
+    "ExternalSmokeCheck",
+    "TaskAuthorizationService",
+    "InspectionService",
+    "ApprovalService",
+    "WarRoomNotifier",
+    "FeishuAuthProvider",
+    "FeishuEventLog",
+    "FeishuBitableGateway"
+  ],
+  "runtime_decisions": {
+    "graph_shape": "headhunter_war_room_graph -> council_deliberation_graph -> business subgraph",
+    "council_modes": [
+      "triage",
+      "lite",
+      "standard",
+      "full_council"
+    ],
+    "full_council_trigger": "User explicitly asks for 三省六部 or full council review",
+    "artifact_state_policy": "LangGraph state stores artifact refs and summaries only; full content is read from ArtifactStore content_ref",
+    "context_pack_policy": "AgentHarness.build_context_pack injects only current-node task_brief, artifact refs/summaries, MemoryRef, source refs, and budget; never full chat history, full RecruitmentState, full node_history, all AgentRuns, all artifacts, or all long-term memory",
+    "vector_memory_policy": "First-version runtime uses PostgreSQL + pgvector via MemoryGateway, VectorMemoryStore, and EmbeddingGateway; retrieval fails closed without thread or tenant/guild/user/project/requisition/candidate scope filters, applies compatible scope matching where provided boundaries allow same value or NULL generalized memory and missing boundaries exclude more-specific memory, then applies pgvector recall, weighting/rerank, MMR dedupe, token compression, and audit",
+    "side_effect_policy": "War Room progress/question/approval/result cards may auto-send after task authorization; business writes, docs, tasks, outreach, and recommendation conclusions require interrupt approval",
+    "task_authorization_policy": "/tasks/authorize is a protected internal bridge: approved defaults to false; approved=true returns the selected council_mode/mode_reason, stores a short authorization payload ref, creates a queued GraphThread, and enqueues graph_dispatch for the worker without running graph synchronously or executing business side effects",
+    "inspection_policy": "GET /threads/{thread_id} and GET /runs/{run_id} expose status, summaries, refs, pending interrupts, and token estimates only; they must not read ArtifactBlob content, raw prompts, or full ContextPack payloads",
+    "internal_approval_policy": "GET /approvals/{interrupt_id} exposes ActionProposal summary only; POST /approvals/{interrupt_id}/decision writes HumanApproval plus resume outbox and never directly executes business side effects",
+    "action_approval_policy": "Business subgraphs produce draft artifact refs, ActionGate creates an idempotent ActionProposal and interrupt payload, HumanApproval resumes the same thread, and ActionExecutor queues approved side effects only after validating the proposal",
+    "feishu_event_policy": "/feishu/events verifies/decrypts/challenges, commits FeishuEventLog plus persistent outbox before ACK, ACKs within 3 seconds, then asynchronously dispatches headhunter_war_room_graph with atomic claim",
+    "feishu_card_action_policy": "/feishu/card-actions is a deferred adapter path; non-challenge callbacks require signed timestamp/nonce/signature, thread_id/action_id/interrupt_id/idempotency_key must match a pending ActionProposal, idempotency uses DB unique constraints and atomic claim, then resumes the same thread_id",
+    "feishu_gateway_policy": "FeishuAuthProvider, FeishuGateway, and FeishuBitableGateway are deferred adapter components for token cache/refresh, scope/401 errors, bot availability checks, Retry-After/rate-limit backoff, dead letter, Bitable batching, upsert, record_id mapping, and partial failure audit"
+  },
+  "test_status": "已执行；.venv/bin/python -m pytest 结果为 162 passed, 2 warnings",
+  "build_status": "已执行；.venv/bin/python -m ruff check app tests 通过",
+  "run_status": "已执行本地接口和单元/图/契约测试；/health 成功，内部 /ready 需要 admin key 并显示 Discord 未实现 warning，python -m app.runtime.config_check strict 仅阻断 required missing/error，PostgreSQL smoke check 入口通过 fake engine 测试，external smoke 入口通过 fake Feishu/OpenAI 测试，受保护 /tasks/authorize 默认 approved=false 且 approved=true 才排队 graph_dispatch，受保护 /threads/{thread_id} 和 /runs/{run_id} 可返回只读审计摘要，受保护 /approvals/{interrupt_id} 和 /approvals/{interrupt_id}/decision 可完成内部人工审批摘要查看与 resume outbox 排队，/feishu/events challenge 返回 200，/feishu/card-actions 非 challenge 强制签名；Alembic head 更新为 20260605_0002；Docker entrypoint shell 语法通过；docker compose config/build/up 未验证，因为当前环境没有 docker 命令",
+  "current_conclusion": "项目已完成 PRD、架构整理、Phase 0 文档、Phase 1 FastAPI/Pydantic 工程骨架、Phase 2 PostgreSQL/pgvector 数据库基础、Phase 3 飞书回调入口与 outbox dispatcher、Phase 4 FeishuGateway/BitableGateway/outbox handler、Phase 5 LangGraph/ArtifactStore/MemoryGateway/Bitable sync 基础、Phase 6 AgentHarness/LLMGateway/War Room outbox/ActionGate 提案基础、Phase 7 interrupt/resume/HumanApproval/审批后 deferred Bitable outbox 基础、Phase 8 durable outbox worker 装配入口、Phase 9 配置就绪诊断接口和 CLI、Phase 10 PostgreSQL smoke 检查入口、Phase 11 外部服务 smoke 检查入口、Phase 12 受保护任务授权 API、Phase 13 受保护只读审计查询 API、Phase 14 受保护内部人工审批 API、Phase 15 全项目逻辑审查修复，以及 Docker Compose api/worker/postgres/caddy 部署底座；后续所有工作统一在 /Users/w/Documents/lietou 进行。",
+  "next_priorities": [
+    "完成 Discord /discord/interactions、DiscordGateway、TaskIntakeParser double check 和 Discord outbox 主链路",
+    "完成 ReviewGate、AgentSOPRegistry 和 memory retention job",
+    "在真实服务器执行 docker compose config/build/up 并验证 Caddy HTTPS、API health、worker、Postgres volume 和 INTERNAL_ADMIN_API_KEY",
+    "完成真实 PostgreSQL 在线迁移和 PostgreSQL checkpointer interrupt/resume 联调",
+    "完成真实 OpenAI LLM/embedding 联调；Feishu/Bitable 只作为 deferred adapter 后续验证"
+  ],
+  "next_planned_dirs": [
+    "/Users/w/Documents/lietou/app/channels",
+    "/Users/w/Documents/lietou/app/discord",
+    "/Users/w/Documents/lietou/app/review",
+    "/Users/w/Documents/lietou/app/sop"
+  ],
+  "unverified_current": [
+    "真实 Discord interactions/buttons/modals/War Room thread 联调未验证",
+    "DiscordGateway、TaskIntakeParser double check、ReviewGate、AgentSOPRegistry、memory retention job 尚未实现",
+    "Feishu/Bitable 当前为 deferred adapter，不再是第一版主链路"
+  ]
+}
