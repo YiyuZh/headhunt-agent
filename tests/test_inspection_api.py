@@ -108,6 +108,10 @@ class FakeRun:
         self.node_name = "strategy"
         self.agent_name = "StrategyDraftAgent"
         self.council_mode = "standard"
+        self.model_profile_id = uuid4()
+        self.model_provider = "deepseek"
+        self.model_name = "deepseek-v4-pro"
+        self.model_owner_user_id = "discord-user-1"
         self.context_pack_ref = "artifact://context/1"
         self.input_summary = "岗位摘要"
         self.output_summary = "策略摘要"
@@ -229,5 +233,7 @@ def test_inspection_service_returns_run_refs_without_context_content() -> None:
 
     assert result.run_id == run_id
     assert result.context_pack_ref == "artifact://context/1"
+    assert result.model_provider == "deepseek"
+    assert result.model_name == "deepseek-v4-pro"
     assert result.memory_refs[0]["memory_id"] == "mem-1"
     assert result.artifact_refs[0]["content_ref"] == "artifact://strategy/1"

@@ -1,7 +1,7 @@
 {
   "project_name": "AI 猎头隔离 Agent 协作系统",
   "project_root": "/Users/w/Documents/lietou",
-  "current_stage": "Discord First PRD/工程文档/操作手册已重生成并补充可执行 SOPRegistry/ReviewGate/Double Check/Memory scope/SearchGateway 事实边界方案；后端 Docker Compose 部署底座已补齐 api/worker/postgres/caddy；当前代码已完成 Phase 15 全项目逻辑审查修复，内部控制面受 INTERNAL_ADMIN_API_KEY 保护，Feishu/Bitable 为 deferred adapter，Discord interaction、double check、ReviewGate、AgentSOPRegistry 和 memory retention job 尚未实现",
+  "current_stage": "Feishu First PRD/工程文档/操作手册已切换并同步：飞书事件、飞书交互卡片、飞书 War Room 群消息和 Bitable 同步为第一版主入口；Discord 降级为 optional adapter。后端 Docker Compose 部署底座已补齐 api/worker/postgres/caddy；当前代码已有 /feishu/events、/feishu/card-actions、Feishu verifier、FeishuGateway、FeishuBitableGateway、feishu_outbox、审批 resume 基础，以及历史 /discord/interactions PING、/model BYOK 和 command register optional adapter；真实飞书后台、Bitable 权限、任务 double check、Feishu BYOK 卡片、飞书 War Room、ReviewGate、AgentSOPRegistry 和 memory retention job 尚未实现或未验证",
   "canonical_docs": {
     "memory": "/Users/w/Documents/lietou/任务记忆文档.md",
     "human_index": "/Users/w/Documents/lietou/项目文件索引.md",
@@ -10,11 +10,11 @@
     "gitignore": "/Users/w/Documents/lietou/.gitignore",
     "dockerignore": "/Users/w/Documents/lietou/.dockerignore",
     "env_example": "/Users/w/Documents/lietou/.env.example",
-        "dockerfile": "/Users/w/Documents/lietou/Dockerfile",
-        "caddyfile": "/Users/w/Documents/lietou/Caddyfile",
-        "readme": "/Users/w/Documents/lietou/README.md",
-        "readme_role": "GitHub public product landing README with Chinese product introduction, quick start, user workflow, troubleshooting, upload-to-GitHub steps, and collapsible English Quick Start",
-        "alembic": "/Users/w/Documents/lietou/alembic.ini",
+    "dockerfile": "/Users/w/Documents/lietou/Dockerfile",
+    "caddyfile": "/Users/w/Documents/lietou/Caddyfile",
+    "readme": "/Users/w/Documents/lietou/README.md",
+    "readme_role": "GitHub public product landing README with Chinese product introduction, quick start, user workflow, troubleshooting, upload-to-GitHub steps, and collapsible English Quick Start",
+    "alembic": "/Users/w/Documents/lietou/alembic.ini",
     "docker_compose": "/Users/w/Documents/lietou/docker-compose.yml",
     "docker_entrypoint": "/Users/w/Documents/lietou/scripts/docker-entrypoint.sh",
     "pyproject": "/Users/w/Documents/lietou/pyproject.toml",
@@ -32,14 +32,14 @@
       "03_数据体系与案例导入_PRD.md",
       "04_Mapping子系统_PRD.md",
       "05_LangGraph业务工作流_PRD.md",
-      "06_Discord工作台_PRD.md",
+      "06_飞书工作台_PRD.md",
       "07_质量合规与安全_PRD.md",
       "08_工程代码设计_PRD.md",
       "09_测试验收与模拟执行_PRD.md",
       "10_运行时调用与部署_PRD.md",
       "11_Agent隔离与容器化架构_PRD.md",
       "12_Agent协作可观测记忆Harness_PRD.md",
-      "13_Discord工作台与AgentSOP交付_PRD.md"
+      "13_飞书工作台与AgentSOP交付_PRD.md"
     ]
   },
   "engineering_docs": {
@@ -51,10 +51,11 @@
       "03_Discord接入设计.md",
       "03_飞书接入设计.md",
       "04_Agent与ContextPack设计.md",
-      "05_测试验收计划.md"
+      "05_测试验收计划.md",
+      "06_升级流程与自审建议.md"
     ],
-    "purpose": "工程实施施工图，覆盖分阶段计划、接口、数据库、Discord First、Feishu deferred adapter、Agent/ContextPack、ReviewGate、SOPRegistry、记忆治理和测试验收",
-    "review_status": "本轮文档切换为 Discord First；真实 Discord 联调未验证"
+    "purpose": "工程实施施工图，覆盖分阶段计划、接口、数据库、Feishu First、Discord optional adapter、Agent/ContextPack、ReviewGate、SOPRegistry、记忆治理、测试验收、升级流程、自审问题和建议汇总",
+    "review_status": "本轮文档切换为 Feishu First；/feishu/events、/feishu/card-actions、FeishuGateway、FeishuBitableGateway 和 feishu_outbox 已有基础代码与测试，真实飞书后台 / Bitable / War Room 联调未验证；Discord /model BYOK 保留为 optional adapter"
   },
   "agent_sops": {
     "dir": "/Users/w/Documents/lietou/docs/agent-sops",
@@ -63,11 +64,11 @@
       "registry.json",
       "business/task-intake-double-check.sop.md",
       "reviewers/artifact-review-gate.sop.md",
-      "workflows/discord-task-to-graph.workflow.md",
+      "workflows/feishu-task-to-graph.workflow.md",
       "checklists/prd-executable-quality.checklist.md",
       "templates/sop.template.md"
     ],
-    "purpose": "本项目 AgentSOPRegistry 的可执行文档骨架，覆盖 task intake double check、artifact-level ReviewGate、Discord task-to-graph workflow、PRD checklist 和 SOP 模板",
+    "purpose": "本项目 AgentSOPRegistry 的可执行文档骨架，覆盖 task intake double check、artifact-level ReviewGate、Feishu task-to-graph workflow、PRD checklist 和 SOP 模板",
     "status": "draft documentation only; runtime AgentSOPRegistry 尚未实现"
   },
   "career_docs": {
@@ -89,7 +90,7 @@
       "猎头日常使用手册.md",
       "故障排查手册.md"
     ],
-    "purpose": "面向用户和人工接入的部署、Discord 接入、Feishu deferred adapter、数据、日常使用和故障排查手册；已同步 field_source/confidence double check、冻结版 CanonicalTaskBrief、artifact-level ReviewGate、MemoryGateway scope filter、SearchGateway 当前事实和简历/JD artifact 优先边界"
+    "purpose": "面向用户和人工接入的部署、Feishu First 接入、Discord optional adapter、数据准备、日常使用和故障排查手册；已同步 BYOK、field_source/confidence double check、冻结版 CanonicalTaskBrief、artifact-level ReviewGate、MemoryGateway scope filter、SearchGateway 当前事实和简历/JD artifact 优先边界"
   },
   "planned_stack": {
     "backend": "FastAPI",
@@ -97,9 +98,9 @@
     "database": "PostgreSQL + pgvector first-version runtime; SQLite only for temporary personal experiments",
     "orm": "SQLAlchemy",
     "schemas": "Pydantic",
-    "feishu": "Deferred adapter only; current historical code may be reused but is not first-version main path",
+    "feishu": "Feishu First: events, interactive cards, War Room group messages, Bitable sync through FeishuGateway and FeishuBitableGateway",
     "tests": "pytest, ruff, fake/mock gateway contract tests",
-    "workspace": "Discord First: slash commands, buttons, select menus, modals, War Room threads/messages",
+    "workspace": "Feishu First: bot events, interactive cards, War Room group messages, Bitable display/sync; Discord optional adapter",
     "agent_architecture": "Frozen CanonicalTaskBrief + sourced structured artifacts + artifact-level ReviewGate + AgentSOPRegistry; no free agent-to-agent chat",
     "memory": "PostgreSQL + pgvector MemoryGateway with tenant/guild/user/project/requisition/candidate scope filter and 30d / 90d / permanent retention policy",
     "deployment": "Docker Compose server baseline with api, worker, postgres(pgvector), and caddy HTTPS reverse proxy"
@@ -125,10 +126,10 @@
       "POST /approvals/{interrupt_id}/decision",
       "POST /feishu/events",
       "POST /feishu/card-actions",
-      "POST /discord/interactions (planned)",
-      "POST /discord/commands/register (planned)"
+      "POST /discord/interactions (PING + /model BYOK)",
+      "POST /discord/commands/register"
     ],
-    "review_status": "Phase 1 历史代码审查曾通过；Discord First 新入口尚未实现和验证"
+    "review_status": "Phase 1 历史代码审查曾通过；Feishu /feishu/events + /feishu/card-actions + verifier/outbox 基础已实现并通过相关单元测试；Discord /discord/interactions PING + /model BYOK + /discord/commands/register 保留为 optional adapter，真实飞书 War Room 联调未验证"
   },
   "phase2_code": {
     "docker_compose": "/Users/w/Documents/lietou/docker-compose.yml",
@@ -140,6 +141,7 @@
     "migration_env": "/Users/w/Documents/lietou/migrations/env.py",
     "initial_migration": "/Users/w/Documents/lietou/migrations/versions/20260602_0001_initial_schema.py",
     "memory_scope_migration": "/Users/w/Documents/lietou/migrations/versions/20260605_0002_memory_scope_filters.py",
+    "user_model_profiles_migration": "/Users/w/Documents/lietou/migrations/versions/20260607_0003_user_model_profiles.py",
     "database_session": "/Users/w/Documents/lietou/app/storage/database.py",
     "models": "/Users/w/Documents/lietou/app/storage/models.py",
     "repositories": "/Users/w/Documents/lietou/app/storage/repositories.py",
@@ -176,7 +178,7 @@
       "discord_interactions (planned)",
       "discord_message_map (planned)"
     ],
-    "review_status": "历史 PostgreSQL/Feishu 表已实现；MemoryGateway scope filter 迁移已新增并补充精细兼容过滤；Docker Compose 部署底座已补齐；Discord 主链路表已进入文档设计，尚未实现",
+    "review_status": "历史 PostgreSQL/Feishu 表已实现；MemoryGateway scope filter 迁移已新增并补充精细兼容过滤；user_model_profiles 迁移已新增；Docker Compose 部署底座已补齐；Feishu First 文档已切换，真实 Feishu War Room / Bitable 联调未验证",
     "unverified": [
       "真实服务器 docker compose up -d --build 尚未验证",
       "真实 PostgreSQL 在线 alembic upgrade head 未验证，因为当前未启动 PostgreSQL 服务"
@@ -521,8 +523,9 @@
     "implemented_capabilities": [
       "Internal control APIs require INTERNAL_ADMIN_API_KEY via X-Internal-Admin-Key or Bearer token",
       "Docker/prod runtime disables FastAPI docs/openapi routes",
-      "Caddy only exposes /health, future /discord/interactions, and deferred Feishu callback paths by default",
-      "Readiness treats Feishu/Bitable as deferred warnings and reports Discord interactions as unimplemented warning",
+      "Caddy exposes /health, /feishu/events, /feishu/card-actions, and optional /discord/interactions publicly; /discord/commands/register is an internal admin-key path",
+      "Discord interaction verifier checks Ed25519 signature plus DISCORD_SIGNATURE_MAX_AGE_SECONDS timestamp freshness window",
+      "Readiness code still reflects the prior Discord-first checks and must be updated in the next runtime pass; docs now define Feishu First as the main path",
       "Task authorization defaults approved=false and maps idempotency/thread conflicts to 409",
       "Feishu card action callbacks require signed timestamp/nonce/signature within a 5 minute window",
       "MemoryGateway fails closed without thread or tenant/guild/user/project/requisition/candidate scope filters",
@@ -533,8 +536,8 @@
       "docker compose config/build/up 未验证，因为当前环境没有 docker 命令",
       "真实服务器 Caddy HTTPS 和 admin key 路径拦截未验证",
       "真实 PostgreSQL 在线 migration/checkpointer 未验证",
-      "真实 Discord interactions 未实现未验证",
-      "真实 Feishu/Bitable deferred adapter 联调未验证"
+      "真实 Feishu/Bitable War Room 和 Bitable 联调未验证",
+      "真实 Discord optional adapter 联调未验证"
     ]
   },
   "front_end_entry": null,
@@ -588,29 +591,29 @@
     "internal_approval_policy": "GET /approvals/{interrupt_id} exposes ActionProposal summary only; POST /approvals/{interrupt_id}/decision writes HumanApproval plus resume outbox and never directly executes business side effects",
     "action_approval_policy": "Business subgraphs produce draft artifact refs, ActionGate creates an idempotent ActionProposal and interrupt payload, HumanApproval resumes the same thread, and ActionExecutor queues approved side effects only after validating the proposal",
     "feishu_event_policy": "/feishu/events verifies/decrypts/challenges, commits FeishuEventLog plus persistent outbox before ACK, ACKs within 3 seconds, then asynchronously dispatches headhunter_war_room_graph with atomic claim",
-    "feishu_card_action_policy": "/feishu/card-actions is a deferred adapter path; non-challenge callbacks require signed timestamp/nonce/signature, thread_id/action_id/interrupt_id/idempotency_key must match a pending ActionProposal, idempotency uses DB unique constraints and atomic claim, then resumes the same thread_id",
-    "feishu_gateway_policy": "FeishuAuthProvider, FeishuGateway, and FeishuBitableGateway are deferred adapter components for token cache/refresh, scope/401 errors, bot availability checks, Retry-After/rate-limit backoff, dead letter, Bitable batching, upsert, record_id mapping, and partial failure audit"
+    "feishu_card_action_policy": "/feishu/card-actions is the Feishu First card action path; non-challenge callbacks require signed timestamp/nonce/signature, thread_id/action_id/interrupt_id/idempotency_key must match a pending ActionProposal, idempotency uses DB unique constraints and atomic claim, then resumes the same thread_id",
+    "feishu_gateway_policy": "FeishuAuthProvider, FeishuGateway, and FeishuBitableGateway are Feishu First components for token cache/refresh, scope/401 errors, bot availability checks, Retry-After/rate-limit backoff, dead letter, Bitable batching, upsert, record_id mapping, and partial failure audit"
   },
-  "test_status": "已执行；.venv/bin/python -m pytest 结果为 162 passed, 2 warnings",
+  "test_status": "已执行；.venv/bin/python -m pytest -q 结果为 196 passed, 2 warnings",
   "build_status": "已执行；.venv/bin/python -m ruff check app tests 通过",
-  "run_status": "已执行本地接口和单元/图/契约测试；/health 成功，内部 /ready 需要 admin key 并显示 Discord 未实现 warning，python -m app.runtime.config_check strict 仅阻断 required missing/error，PostgreSQL smoke check 入口通过 fake engine 测试，external smoke 入口通过 fake Feishu/OpenAI 测试，受保护 /tasks/authorize 默认 approved=false 且 approved=true 才排队 graph_dispatch，受保护 /threads/{thread_id} 和 /runs/{run_id} 可返回只读审计摘要，受保护 /approvals/{interrupt_id} 和 /approvals/{interrupt_id}/decision 可完成内部人工审批摘要查看与 resume outbox 排队，/feishu/events challenge 返回 200，/feishu/card-actions 非 challenge 强制签名；Alembic head 更新为 20260605_0002；Docker entrypoint shell 语法通过；docker compose config/build/up 未验证，因为当前环境没有 docker 命令",
-  "current_conclusion": "项目已完成 PRD、架构整理、Phase 0 文档、Phase 1 FastAPI/Pydantic 工程骨架、Phase 2 PostgreSQL/pgvector 数据库基础、Phase 3 飞书回调入口与 outbox dispatcher、Phase 4 FeishuGateway/BitableGateway/outbox handler、Phase 5 LangGraph/ArtifactStore/MemoryGateway/Bitable sync 基础、Phase 6 AgentHarness/LLMGateway/War Room outbox/ActionGate 提案基础、Phase 7 interrupt/resume/HumanApproval/审批后 deferred Bitable outbox 基础、Phase 8 durable outbox worker 装配入口、Phase 9 配置就绪诊断接口和 CLI、Phase 10 PostgreSQL smoke 检查入口、Phase 11 外部服务 smoke 检查入口、Phase 12 受保护任务授权 API、Phase 13 受保护只读审计查询 API、Phase 14 受保护内部人工审批 API、Phase 15 全项目逻辑审查修复，以及 Docker Compose api/worker/postgres/caddy 部署底座；后续所有工作统一在 /Users/w/Documents/lietou 进行。",
+  "run_status": "已执行本地接口和单元/图/契约测试；/health 成功，内部 /ready 需要 admin key；/feishu/events challenge 返回 200，/feishu/card-actions 非 challenge 强制签名，FeishuGateway/BitableGateway/outbox handler 有本地测试；历史 /discord/interactions PING + /model BYOK + /discord/commands/register 已有单元测试但仅作为 optional adapter；Alembic head 为 20260607_0003；Docker entrypoint shell 语法通过；docker compose config/build/up 未验证，因为当前环境没有 docker 命令",
+  "current_conclusion": "项目已完成 Feishu First PRD/工程文档/操作手册/README/AGENTS/索引切换，保留 Discord 为 optional adapter；已有 FastAPI/Pydantic 工程骨架、PostgreSQL/pgvector 数据库基础、飞书回调入口与 outbox dispatcher、FeishuGateway/BitableGateway/outbox handler、LangGraph/ArtifactStore/MemoryGateway/Bitable sync 基础、AgentHarness/LLMGateway/War Room outbox/ActionGate、interrupt/resume/HumanApproval/审批后 Bitable outbox、durable outbox worker、配置/外部 smoke、任务授权/审计/审批 API 和 Docker Compose 部署底座；后续所有工作统一在 /Users/w/Documents/lietou 进行。",
   "next_priorities": [
-    "完成 Discord /discord/interactions、DiscordGateway、TaskIntakeParser double check 和 Discord outbox 主链路",
+    "完成飞书任务入口、TaskIntakeParser double check、Feishu BYOK 配置卡和飞书 War Room 主链路",
     "完成 ReviewGate、AgentSOPRegistry 和 memory retention job",
     "在真实服务器执行 docker compose config/build/up 并验证 Caddy HTTPS、API health、worker、Postgres volume 和 INTERNAL_ADMIN_API_KEY",
     "完成真实 PostgreSQL 在线迁移和 PostgreSQL checkpointer interrupt/resume 联调",
-    "完成真实 OpenAI LLM/embedding 联调；Feishu/Bitable 只作为 deferred adapter 后续验证"
+    "完成真实 OpenAI/DeepSeek BYOK chat、OpenAI embedding、真实飞书后台和 Bitable 权限联调；Discord 只作为 optional adapter 后续验证"
   ],
   "next_planned_dirs": [
     "/Users/w/Documents/lietou/app/channels",
-    "/Users/w/Documents/lietou/app/discord",
+    "/Users/w/Documents/lietou/app/feishu",
     "/Users/w/Documents/lietou/app/review",
     "/Users/w/Documents/lietou/app/sop"
   ],
   "unverified_current": [
-    "真实 Discord interactions/buttons/modals/War Room thread 联调未验证",
-    "DiscordGateway、TaskIntakeParser double check、ReviewGate、AgentSOPRegistry、memory retention job 尚未实现",
-    "Feishu/Bitable 当前为 deferred adapter，不再是第一版主链路"
+    "真实飞书开放平台、卡片发送/更新、Bitable 权限和飞书 War Room 联调未验证",
+    "飞书任务入口、TaskIntakeParser double check、Feishu BYOK 配置卡、ReviewGate、AgentSOPRegistry、memory retention job 尚未实现",
+    "Discord 当前为 optional adapter，不再是第一版主链路"
   ]
 }

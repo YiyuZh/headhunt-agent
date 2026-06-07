@@ -7,9 +7,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.artifacts.repository import PostgresArtifactStore
-from app.gateways.llm import LLMGateway
+from app.gateways.llm import LLMGateway, get_gateway_model_info
 from app.harness.context_pack import ContextPackBuilder, ContextSnapshot
-from app.memory.gateway import PostgresMemoryGateway
 from app.runtime.war_room import WarRoomNotifier
 from app.schemas.agent import AgentLLMOutput, AgentRunResult, AgentTask
 from app.schemas.artifacts import AgentArtifact, ArtifactRef
@@ -25,7 +24,7 @@ class AgentHarness:
         *,
         session: Session,
         llm_gateway: LLMGateway,
-        memory_gateway: PostgresMemoryGateway,
+        memory_gateway,
         artifact_store: PostgresArtifactStore | None = None,
         context_builder: ContextPackBuilder | None = None,
         war_room_notifier: WarRoomNotifier | None = None,
@@ -39,7 +38,8 @@ class AgentHarness:
 
     def build_context_pack(self, task: AgentTask) -> ContextPack:
         policy = task.policy
-        memory_refs = self.memory_gateway.retrieve(
+        memory_gateway = self._memory_gateway_for_task(task)
+        memory_refs = memory_gateway.retrieve(
             agent_name=task.agent_name,
             task_brief=task.task_brief,
             memory_scopes=[scope.value for scope in policy.allowed_memory_scopes],
@@ -81,6 +81,14 @@ class AgentHarness:
         run_id = uuid4()
         context_pack = self.build_context_pack(task)
         context_pack_ref = self._write_context_pack_blob(run_id, context_pack)
+        model_profile_id = task.model_profile_id or task.policy.model_profile_id
+        model_info = get_gateway_model_info(
+            self.llm_gateway,
+            model_profile_id=model_profile_id,
+            model_owner_user_id=task.model_owner_user_id,
+            model_guild_id=task.model_guild_id,
+            model_tenant_id=task.model_tenant_id,
+        )
         run = AgentRun(
             id=run_id,
             thread_id=task.thread_id,
@@ -91,6 +99,10 @@ class AgentHarness:
             input_summary=task.task_brief[:500],
             memory_refs=[item.model_dump(mode="json") for item in context_pack.memory_refs],
             source_refs=list(task.source_refs),
+            model_profile_id=model_info.model_profile_id,
+            model_provider=model_info.model_provider,
+            model_name=model_info.model_name,
+            model_owner_user_id=model_info.model_owner_user_id,
             token_estimate=context_pack.budget_remaining.estimated_context_tokens,
             status="running",
             started_at=datetime.now(UTC),
@@ -105,6 +117,10 @@ class AgentHarness:
                 output_schema=AgentLLMOutput.model_json_schema(),
                 schema_name="agent_llm_output",
                 max_output_tokens=task.policy.max_output_tokens,
+                model_profile_id=model_profile_id,
+                model_owner_user_id=task.model_owner_user_id,
+                model_guild_id=task.model_guild_id,
+                model_tenant_id=task.model_tenant_id,
             )
             output = AgentLLMOutput.model_validate(llm_payload)
             artifact = self._write_agent_artifact(
@@ -231,6 +247,7 @@ class AgentHarness:
     ) -> str | None:
         if not output.summary:
             return None
+        memory_gateway = self._memory_gateway_for_task(task)
         item = MemoryItem(
             scope=MemoryScope.run,
             owner_agent=task.agent_name,
@@ -247,7 +264,13 @@ class AgentHarness:
                 "agent_name": task.agent_name,
             },
         )
-        return self.memory_gateway.propose_update(task.agent_name, item)
+        return memory_gateway.propose_update(task.agent_name, item)
+
+    def _memory_gateway_for_task(self, task: AgentTask):
+        for_task = getattr(self.memory_gateway, "for_task", None)
+        if callable(for_task):
+            return for_task(task)
+        return self.memory_gateway
 
     def _enqueue_war_room_card(
         self,

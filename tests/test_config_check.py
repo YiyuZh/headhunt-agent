@@ -12,8 +12,10 @@ def test_config_check_prints_readiness_without_secrets(monkeypatch, capsys) -> N
         "get_settings",
         lambda: Settings(
             internal_admin_api_key="admin-secret",
+            model_secret_encryption_key="model-secret",
             embedding_provider="openai",
             embedding_model="text-embedding-3-small",
+            embedding_api_key="embedding-secret",
             llm_provider="openai_responses",
             llm_model="gpt-4.1-mini",
             llm_api_key="sk-secret",
@@ -37,6 +39,8 @@ def test_config_check_prints_readiness_without_secrets(monkeypatch, capsys) -> N
     assert payload["status"] == "degraded"
     assert payload["missing_required"] == []
     assert "sk-secret" not in output
+    assert "embedding-secret" not in output
+    assert "model-secret" not in output
     assert "feishu-secret" not in output
     assert "admin-secret" not in output
 
@@ -50,8 +54,9 @@ def test_config_check_strict_exits_when_required_config_missing(monkeypatch, cap
     assert exc_info.value.code == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "not_ready"
-    assert "LLM_API_KEY" in payload["missing_required"]
+    assert "MODEL_SECRET_ENCRYPTION_KEY" in payload["missing_required"]
     assert "INTERNAL_ADMIN_API_KEY" in payload["missing_required"]
+    assert "LLM_API_KEY" not in payload["missing_required"]
     assert "FEISHU_APP_ID" not in payload["missing_required"]
 
 
@@ -61,11 +66,9 @@ def test_config_check_strict_allows_deferred_adapter_warnings(monkeypatch, capsy
         "get_settings",
         lambda: Settings(
             internal_admin_api_key="admin-secret",
+            model_secret_encryption_key="model-secret",
             embedding_provider="openai",
             embedding_model="text-embedding-3-small",
-            llm_provider="openai_responses",
-            llm_model="gpt-4.1-mini",
-            llm_api_key="sk-secret",
         ),
     )
 

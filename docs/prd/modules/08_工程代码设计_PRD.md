@@ -7,28 +7,28 @@
 ```text
 app/api          FastAPI 路由和请求/响应模型
 app/runtime      LangGraph 根图创建、PostgreSQL checkpointer、thread_id、interrupt/resume
-app/channels     ChannelGateway 抽象，统一 Discord / 后续飞书入口
-app/discord      Discord signature、interaction、command、outbox、message map
+app/channels     ChannelGateway 抽象，统一飞书主入口与 Discord optional adapter
+app/feishu       飞书事件、卡片、Bitable、outbox、War Room 消息
 app/council      三省六部角色审查矩阵、意见模型、汇总器、派发器
 app/domain       业务模型、枚举、评分规则
 app/graphs       LangGraph 工作流定义
 app/nodes        可测试节点函数
 app/services     业务服务和 use cases
 app/tools        外部工具适配器，主链路真实接入，测试可 mock
-app/gateways     SearchGateway、DatabaseGateway、MemoryGateway、ActionGateway、DiscordGateway
+app/gateways     SearchGateway、DatabaseGateway、MemoryGateway、ActionGateway、FeishuGateway、FeishuBitableGateway
 app/policy       AgentPolicy、TaskPlan、权限校验、预算校验
 app/harness      AgentHarness、AgentSOPRegistry、AgentTask 调度
 app/artifacts    ArtifactStore、AgentArtifact、版本和证据引用
 app/memory       pgvector 记忆模型、检索、写入审批、时间治理
 app/review       ReviewGate、SchemaValidator、LLM reviewer、合规规则
-app/adapters     FeishuAdapter(deferred)、HermesAdapter、MCPAdapter 等入口适配器
+app/adapters     DiscordAdapter(optional)、HermesAdapter、MCPAdapter 等入口适配器
 app/storage      SQLAlchemy repository、migrations、seed import
 app/schemas      Pydantic I/O schema
 app/prompts      prompt 模板
 tests            单元、图、合规、Gateway fake/mock、真实接入契约测试
 ```
 
-第一版主工作台是 Discord。飞书/Bitable 不再作为第一版主链路，只保留为后续可选 adapter；现有飞书相关代码可保留，但 PRD、验收和新代码不能再依赖它作为默认入口。
+第一版主工作台是飞书。飞书事件、交互卡片、War Room 群消息和 Bitable 同步是第一版主链路；Discord 只作为后续 optional adapter，现有 Discord 代码可保留但不作为默认入口。
 
 ## 2. 依赖方向
 
@@ -41,54 +41,53 @@ harness -> policy + artifacts + gateways + memory + sop registry
 gateways implementations -> external APIs
 adapters -> services
 review -> domain + schemas + artifacts
-discord -> channels + services
+feishu -> channels + services
 ```
 
 禁止：
 
 ```text
-nodes 直接 import Discord SDK、飞书 SDK 或公网 SDK
+nodes 直接 import 飞书 SDK、Discord SDK 或公网 SDK
 nodes 直接写数据库
 nodes 直接访问公网
 nodes 直接调用其他 Agent
-agent-* 服务直接持有模型 Key、Discord Key、飞书 Key、数据库写凭证
+agent-* 服务直接持有模型 Key、飞书 Key、Discord Key、数据库写凭证
 业务 graph 直接解析原始用户输入并绕过 CanonicalTaskBrief
 业务 API 绕过 headhunter_war_room_graph 直接调用子图
 LLM 输出绕过 Pydantic
 工具函数绕过 interrupt 执行业务副作用
-测试依赖真实 Discord 或飞书配置
-Hermes/MCP 直接写数据库或直接调用 Discord / 飞书 SDK
+测试依赖真实飞书、Discord 或模型配置
+Hermes/MCP 直接写数据库或直接调用飞书 / Discord SDK
 下游 Agent 重新理解原始简历、原始任务或完整聊天历史
 ```
 
-## 3. Discord First 入口边界
+## 3. Feishu First 入口边界
 
-Discord 负责普通用户入口和 War Room 交互，但不承载业务判断。
+飞书负责普通用户入口、War Room 交互和 Bitable 同步展示，但不承载业务判断。
 
 ```text
-Discord slash command / button / select menu / modal
--> POST /discord/interactions
--> DiscordInteractionVerifier 校验 Ed25519 signature
--> 3 秒内 ACK / defer
--> discord_event_logs + discord_outbox 幂等落库
+飞书事件回调 / 交互卡片 / 表单
+-> POST /feishu/events + POST /feishu/card-actions
+-> FeishuCallbackVerifier 校验事件与卡片签名
+-> 3 秒内 ACK / toast
+-> feishu_event_logs / feishu_card_actions + feishu_outbox 幂等落库
 -> worker 异步处理
 -> TaskIntakeParser 生成结构化任务
--> Discord 任务确认卡 double check
+-> 飞书任务确认卡 double check
 -> 用户 approve / edit / reject
 -> approve 后才进入 headhunter_war_room_graph
 ```
 
-v1 不依赖 `MESSAGE_CONTENT` privileged intent。任务输入优先通过 slash command 参数、附件、modal 字段和按钮回调完成。
+v1 不依赖普通聊天历史作为主上下文。任务输入优先来自飞书 @机器人消息、交互卡片字段、附件引用和卡片按钮回调。
 
 ## 4. 关键接口
 
 ```python
 class ChannelGateway: ...
-class DiscordGateway: ...
-class DiscordInteractionVerifier: ...
-class DiscordEventRepository: ...
-class DiscordOutboxDispatcher: ...
-class DiscordCommandRegistry: ...
+class FeishuGateway: ...
+class FeishuCallbackVerifier: ...
+class FeishuEventRepository: ...
+class FeishuOutboxDispatcher: ...
 class TaskIntakeParser: ...
 class TaskDoubleCheckService: ...
 class RequisitionRepository: ...
@@ -109,7 +108,7 @@ class AgentSOPRegistry: ...
 class ReviewGate: ...
 class CouncilDeliberationService: ...
 class RuntimeGraphFactory: ...
-class FeishuGateway: ...  # deferred adapter
+class DiscordGateway: ...  # optional adapter
 class HermesAdapter: ...
 ```
 
@@ -128,10 +127,10 @@ class RuntimeGraphFactory:
 
 ```text
 ChannelGateway 只表达发送消息、更新消息、创建 thread、打开 modal、读取回调上下文等跨渠道语义。
-DiscordGateway 只封装 Discord REST / interaction callback / follow-up / thread / modal / command 注册。
-DiscordInteractionVerifier 只负责 timestamp、signature、public key 校验。
-DiscordEventRepository 只负责 interaction、message map、outbox 的幂等落库和状态流转。
-DiscordOutboxDispatcher 只负责快速 ACK 后的异步发送、更新、重试和 dead letter。
+FeishuGateway 只封装飞书消息、交互卡片、卡片回传、限频、权限和发送更新。
+FeishuCallbackVerifier 只负责飞书事件和卡片回调签名、timestamp、nonce、verification token 和 encrypt key 校验。
+FeishuEventRepository 只负责 event、card action、message map、outbox 的幂等落库和状态流转。
+FeishuOutboxDispatcher 只负责快速 ACK 后的异步发送、更新、Bitable 写入、重试和 dead letter。
 TaskIntakeParser 只把用户输入转为 CanonicalTaskBrief 等结构化 artifact，不启动正式业务 graph。
 TaskDoubleCheckService 只处理 approve / edit / reject，不绕过 schema 校验。
 LLMGateway 只封装模型调用和结构化输出。
@@ -141,7 +140,7 @@ MemoryGateway 只封装记忆检索、写入提案、审批、裁剪、时间治
 VectorMemoryStore 只封装 pgvector 写入、混合检索、MMR 去重和向量索引查询；Qdrant / Milvus 只保留适配接口。
 EmbeddingGateway 只封装 embedding 生成、批处理、content_hash 去重和模型版本记录。
 ActionGateway 只执行 interrupt approve 后的副作用。
-FeishuGateway 只作为后续 adapter，不进入第一版验收主路径。
+DiscordGateway 只作为 optional adapter，不进入第一版主验收路径。
 ```
 
 ## 5. 核心模型
@@ -285,7 +284,7 @@ class ReviewResult(BaseModel):
     repair_node: str | None = None
     retry_count: int
 
-class DiscordInteractionEnvelope(BaseModel):
+class FeishuCallbackEnvelope(BaseModel):
     interaction_id: str
     interaction_token_ref: str
     application_id: str
@@ -449,8 +448,8 @@ needs_fix 不允许重跑完整 graph，也不允许重跑无关上游节点。
 ## 9. Use Case
 
 ```python
-class HandleDiscordInteractionUseCase:
-    def run(self, envelope: DiscordInteractionEnvelope) -> dict: ...
+class HandleFeishuCallbackUseCase:
+    def run(self, envelope: FeishuCallbackEnvelope) -> dict: ...
 
 class ParseTaskIntakeUseCase:
     def run(self, user_input: dict, channel_context: dict) -> CanonicalTaskBrief: ...
@@ -544,9 +543,7 @@ graph.invoke(
 ## 11. 最小 API
 
 ```text
-POST /discord/interactions
-POST /discord/commands/register
-POST /discord/outbox/dispatch
+POST /feishu/events + POST /feishu/card-actions
 POST /council/deliberate
 POST /requisitions/calibrate
 POST /requisitions/{requisition_id}/talent-map
@@ -570,26 +567,26 @@ GET /data/import-runs/{run_id}
 规则：
 
 ```text
-/discord/interactions 是第一版用户入口，只做签名校验、ACK/defer、幂等落库和 outbox。
+/feishu/events 和 /feishu/card-actions 是第一版用户入口，只做签名校验、ACK/toast、幂等落库和 outbox。
 /council/deliberate 是内部调试和 API 入口，也必须先生成 CanonicalTaskBrief 和 double check 状态。
 业务 API 可以保留，方便本地测试和自动化，但不能绕过 CouncilDecision、ReviewGate 或 interrupt。
-/human-approval/{thread_id} 仅作为内部调试或后台 resume API，不作为 Discord 按钮对外入口。
+/human-approval/{thread_id} 仅作为内部调试或后台 resume API，不作为飞书卡片对外入口。
 ```
 
-## 12. Discord 调用路径
+## 12. 飞书调用路径
 
-Slash command：
+飞书事件：
 
 ```text
-POST /discord/interactions
--> DiscordInteractionVerifier.verify(signature, timestamp, raw_body)
--> DiscordEventRepository.insert_or_mark_duplicate(interaction_id/idempotency_key)
+POST /feishu/events + POST /feishu/card-actions
+-> FeishuCallbackVerifier.verify(raw_body, headers)
+-> FeishuEventRepository.insert_or_mark_duplicate(event_id/idempotency_key)
 -> persist outbox item and commit before ACK
--> return defer / ephemeral ACK within 3 seconds
--> DiscordOutboxDispatcher.claim_next(envelope)
+-> return ACK or toast within 3 seconds
+-> FeishuOutboxDispatcher.claim_next(envelope)
 -> ParseTaskIntakeUseCase.run(...)
 -> SchemaValidator 校验 CanonicalTaskBrief
--> DiscordGateway.send_task_double_check_card(...)
+-> FeishuGateway.send_task_double_check_card(...)
 ```
 
 Double check：
@@ -597,11 +594,11 @@ Double check：
 ```text
 用户 approve
 -> 记录 TaskDoubleCheckState(status=approved)
--> 创建或读取 War Room thread_id
+-> 创建或读取飞书 War Room thread_id
 -> InvokeWarRoomGraphUseCase.run(confirmed_task, thread_id)
 
 用户 edit
--> Discord modal 收集修改字段
+-> 飞书卡片表单收集修改字段
 -> 重新生成 CanonicalTaskBrief
 -> 再次发送任务确认卡
 
@@ -614,23 +611,23 @@ Double check：
 审批按钮：
 
 ```text
-Discord button / modal interaction
--> 校验 signature
+飞书卡片交互
+-> 校验飞书签名
 -> 解析 custom_id 或 modal fields 中的 thread_id/action_id/interrupt_id/idempotency_key/decision
--> 3 秒内 ACK / ephemeral status
+-> 3 秒内 ACK/toast
 -> 持久 outbox
 -> 后台生成 HumanApproval
 -> Command(resume=HumanApproval)
--> 异步更新 War Room 卡片和 AgentRuns
+-> 异步更新飞书 War Room 卡片和 AgentRuns
 ```
 
-Follow-up token 15 分钟限制内用于短期 follow-up；超过限制或需要长期更新时，使用 bot token 发送/更新 channel message 或 thread message。
+飞书长期消息更新统一通过 FeishuGateway 和 durable outbox 执行，不依赖回调请求同步完成。
 
 ## 13. `.env.example`
 
 ```env
 APP_ENV=docker
-APP_NAME=AI Headhunter War Room
+APP_NAME=AI Headhunter Feishu War Room
 APP_VERSION=0.1.0
 DOMAIN=localhost
 HTTP_PORT=80
@@ -649,36 +646,6 @@ POSTGRES_PORT=5432
 # Docker Compose derives DATABASE_URL and CHECKPOINT_DB_URL from POSTGRES_*.
 # Only set DATABASE_URL/CHECKPOINT_DB_URL manually for host-local Python runs.
 
-DISCORD_PUBLIC_KEY=
-DISCORD_BOT_TOKEN=
-DISCORD_APPLICATION_ID=
-DISCORD_ALLOWED_GUILD_IDS=
-DISCORD_ALLOWED_CHANNEL_IDS=
-DISCORD_INTERACTION_CALLBACK_PATH=/discord/interactions
-DISCORD_COMMAND_REGISTER_GUILD_ID=
-DISCORD_INTERACTION_ACK_TIMEOUT_SECONDS=3
-DISCORD_OUTBOX_MAX_ATTEMPTS=5
-
-VECTOR_STORE_PROVIDER=pgvector
-EMBEDDING_PROVIDER=openai
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSION=1536
-MEMORY_RETRIEVAL_TOP_K=5
-MEMORY_MAX_TOKENS_PER_AGENT=800
-MEMORY_RUN_RETENTION_DAYS=30
-MEMORY_LONG_RETENTION_DAYS=90
-CONTEXT_PACK_MAX_TOKENS=3000
-SOP_REGISTRY_PATH=docs/agent-sops
-
-CHANNEL_GATEWAY_PROVIDER=discord
-DEFAULT_VISIBILITY_MODE=standard
-AGENT_DEFAULT_TOKEN_BUDGET=4000
-
-LLM_PROVIDER=openai_responses
-LLM_MODEL=gpt-4.1-mini
-LLM_API_KEY=
-
-# Deferred Feishu adapter, not first-version main path.
 FEISHU_BASE_URL=https://open.feishu.cn
 FEISHU_APP_ID=
 FEISHU_APP_SECRET=
@@ -686,17 +653,49 @@ FEISHU_VERIFICATION_TOKEN=
 FEISHU_ENCRYPT_KEY=
 FEISHU_EVENT_CALLBACK_PATH=/feishu/events
 FEISHU_CARD_ACTION_CALLBACK_PATH=/feishu/card-actions
+FEISHU_DEFAULT_CHAT_ID=
+FEISHU_BITABLE_APP_TOKEN=
+FEISHU_BITABLE_TABLE_ID=
+FEISHU_OUTBOX_MAX_ATTEMPTS=5
+
+VECTOR_STORE_PROVIDER=pgvector
+EMBEDDING_PROVIDER=openai
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSION=1536
+EMBEDDING_API_KEY=
+MEMORY_RETRIEVAL_TOP_K=5
+MEMORY_MAX_TOKENS_PER_AGENT=800
+MEMORY_RUN_RETENTION_DAYS=30
+MEMORY_LONG_RETENTION_DAYS=90
+CONTEXT_PACK_MAX_TOKENS=3000
+SOP_REGISTRY_PATH=docs/agent-sops
+
+CHANNEL_GATEWAY_PROVIDER=feishu
+DEFAULT_VISIBILITY_MODE=standard
+AGENT_DEFAULT_TOKEN_BUDGET=4000
+
+# Feishu BYOK model profiles: users choose provider/model/API key in Feishu cards.
+MODEL_SECRET_ENCRYPTION_KEY=change-this-model-secret
+MODEL_PROVIDER_ALLOWLIST=openai,deepseek
+
+# Legacy local debug fallback only, not Feishu multi-user main path.
+LLM_PROVIDER=
+LLM_MODEL=
+LLM_API_KEY=
+DEEPSEEK_API_KEY=
+DEEPSEEK_MODEL=deepseek-v4-pro
+
 ```
 
 ## 14. 容器化服务边界
 
-工程实现先用模块化单体跑通，但主链路必须直接接入真实 PostgreSQL、PostgreSQL checkpointer、pgvector 和真实 Discord interactions。mock / fake gateway 只用于单元测试、CI 和失败隔离，不作为第一版主运行路径。
+工程实现先用模块化单体跑通，但主链路必须直接接入真实 PostgreSQL、PostgreSQL checkpointer、pgvector 和真实飞书事件回调、飞书交互卡片和 Bitable 同步。mock / fake gateway 只用于单元测试、CI 和失败隔离，不作为第一版主运行路径。
 
 未来可拆服务：
 
 ```text
 orchestrator-api
-discord-gateway
+feishu-gateway
 channel-gateway
 task-intake-parser
 review-gate
@@ -731,20 +730,20 @@ Agent 服务只暴露 /run_task。
 /run_task 输出必须是 AgentArtifact。
 Agent 服务不能暴露任意工具调用 API。
 Gateway 服务必须记录审计。
-DiscordGateway 不能直接执行招聘业务副作用。
+FeishuGateway 不能直接执行招聘业务副作用；Bitable 写入必须先经过 HumanApproval。
 ```
 
 ## 15. 工程验收
 
 ```text
-Discord signature 校验单测。
-/discord/interactions 3 秒 ACK/defer 单测。
+飞书事件与卡片签名校验单测。
+/feishu/events 与 /feishu/card-actions 3 秒 ACK/toast 单测。
 TaskIntakeParser 生成 CanonicalTaskBrief 单测。
 double check approve/edit/reject 单测。
 ReviewGate pass / needs_fix / needs_human 单测。
 ContextPack 不含完整历史、完整 state、完整 node_history、全量 AgentRuns、全量 artifacts。
 MemoryGateway 30d / 90d / permanent retention 单测。
 长期记忆未经审批不可 active。
-Discord outbox 幂等和重试单测。
-真实 Discord 联调未执行前必须写“未验证”。
+feishu_outbox 幂等、重试和 Bitable 写入单测。
+真实飞书后台、Bitable 权限和卡片发送联调未执行前必须写“未验证”。
 ```

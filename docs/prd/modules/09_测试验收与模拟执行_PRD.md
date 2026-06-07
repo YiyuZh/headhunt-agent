@@ -73,7 +73,7 @@ CAND-001：某云厂商后端工程师，做过企业知识库、向量检索、
 - 不承诺薪资、offer、面试结果。
 - 发送前必须人工确认。
 
-### D：Discord / Channel 复盘
+### D：飞书 / Channel 复盘
 
 通过条件：
 
@@ -117,12 +117,12 @@ tests/security/test_agent_cannot_call_other_agents.py
 tests/security/test_db_scope_redaction.py
 tests/security/test_memory_write_requires_approval.py
 
-tests/integration/test_discord_gateway_contract.py
-tests/integration/test_feishu_gateway_contract_deferred.py
+tests/integration/test_feishu_gateway_contract.py
 tests/integration/test_feishu_event_to_war_room_graph.py
 tests/integration/test_feishu_event_fast_ack.py
 tests/integration/test_feishu_event_idempotency.py
 tests/integration/test_feishu_card_action_resume.py
+tests/integration/test_discord_gateway_contract_optional.py
 tests/integration/test_feishu_message_rate_limit.py
 tests/integration/test_feishu_bitable_batching.py
 tests/integration/test_feishu_auth_provider.py
@@ -133,7 +133,7 @@ tests/integration/test_pgvector_memory_retrieval.py
 tests/integration/test_run_memory_vectorization.py
 tests/integration/test_hermes_adapter_public_api_only.py
 tests/integration/test_search_gateway_source_refs.py
-tests/integration/test_discord_war_room_cards.py
+tests/integration/test_feishu_war_room_cards.py
 tests/integration/test_agent_task_rerun.py
 tests/integration/test_container_network_policy.py
 ```
@@ -143,11 +143,11 @@ tests/integration/test_container_network_policy.py
 必须覆盖：
 
 ```text
-Discord slash command -> /discord/interactions -> 3 秒内 ACK/defer -> async dispatcher -> TaskIntakeParser -> double check -> headhunter_war_room_graph -> council_deliberation_graph
-模糊输入 -> human_questions -> Discord 追问卡片
+飞书消息或卡片 -> /feishu/events 或 /feishu/card-actions -> 3 秒内 ACK/toast -> async dispatcher -> TaskIntakeParser -> double check -> headhunter_war_room_graph -> council_deliberation_graph
+模糊输入 -> human_questions -> 飞书追问卡片
 完整 JD -> CouncilDecision -> intake_calibration_graph
-TalentMap 写入前 -> interrupt -> Discord 确认卡片/modal
-approve/edit/reject -> Discord button/modal -> HumanApproval -> Command(resume=...)
+TalentMap 或 Bitable 写入前 -> interrupt -> 飞书确认卡片/表单
+approve/edit/reject -> 飞书卡片 -> HumanApproval -> Command(resume=...)
 相同 thread_id -> 状态可恢复
 每次响应和 War Room 卡片展示 council_mode 和 mode_reason
 用户要求“三省六部” -> council_mode=full_council
@@ -160,7 +160,7 @@ approve/edit/reject -> Discord button/modal -> HumanApproval -> Command(resume=.
 ```text
 业务 API 不能直接执行子图，必须生成或接收 CouncilDecision。
 业务子图不能直接解析 user_input。
-HermesAdapter 只能调用公开 API，不能直接操作数据库、DiscordGateway 或 FeishuGateway。
+HermesAdapter 只能调用公开 API，不能直接操作数据库、FeishuGateway、FeishuBitableGateway 或 Discord optional adapter。
 未 approve 不得写入业务表、创建外部文档、创建外部任务、保存推荐结论或发送外部触达。
 任务授权后的 War Room 进度卡、追问卡、确认卡和结果卡允许自动发送，并写入 AgentRuns。
 reject 只写审计，不执行副作用。
@@ -191,7 +191,7 @@ SearchGateway 返回必须包含 source_refs。
 CandidateJudgementAgent 默认不可读取联系方式明文。
 DatabaseGateway 对 PII 字段默认脱敏。
 Agent 不能直接调用其他 Agent endpoint。
-Agent 不能绕过 ActionGateway 写 Discord、飞书或业务数据库。
+Agent 不能绕过 ActionGateway 写飞书、Bitable、Discord optional adapter 或业务数据库。
 SkillRegistry 只能加载 AgentPolicy.allowed_skills。
 ```
 
@@ -221,7 +221,7 @@ CouncilSynthesizerAgent 不得读取各 Agent 原始 ContextPack。
 错误记忆可以撤销或标记失效。
 ```
 
-## 10. Discord / War Room 可观测测试
+## 10. 飞书 / War Room 可观测测试
 
 必须覆盖：
 
@@ -235,22 +235,22 @@ brief / standard / debug 展示模式可切换。
 用户要求重跑指定 AgentTask 时，不重跑整条 graph。
 ```
 
-## 11. Discord 平台契约测试
+## 11. 飞书平台契约测试
 
 必须覆盖：
 
 ```text
-`/discord/interactions` 对 PING 在 3 秒内返回 PONG。
-`/discord/interactions` 必须先校验 Ed25519 signature、timestamp、guild/channel allowlist。
-ACK/defer 前已经把 discord_event_logs / discord_outbox 写入 PostgreSQL 并提交成功。
-重复 interaction_id / custom_id 只 ACK，不重复创建 thread、graph run 或 War Room 卡片。
-并发重复 interaction_id / custom_id 通过数据库唯一约束和原子 insert / claim 只产生一个处理者。
-Discord button/modal 能解析 thread_id、action_id、interrupt_id、idempotency_key、decision。
+`/feishu/events` 对 URL verification/challenge 在 3 秒内返回。
+`/feishu/events` 和 `/feishu/card-actions` 必须先校验签名、timestamp、nonce、verification token/encrypt key 和 tenant/chat allowlist。
+ACK/toast 前已经把 feishu_event_logs / feishu_card_actions / feishu_outbox 写入 PostgreSQL 并提交成功。
+重复 event_id / action_id 只 ACK，不重复创建 graph run、War Room 卡片或 Bitable 写入。
+并发重复 event_id / action_id 通过数据库唯一约束和原子 insert / claim 只产生一个处理者。
+飞书卡片 action 能解析 thread_id、action_id、interrupt_id、idempotency_key、decision。
 重复 idempotency_key 不重复 resume，不重复执行副作用。
 并发重复 idempotency_key 通过数据库唯一约束和原子 insert / claim 只 resume 一次。
-机器人不在群、用户不在可用范围、缺少消息权限时，不发送卡片并写入可读错误。
-遇到 429 或 Discord 限频错误时尊重 Retry-After，进入持久退避重试；超过上限进入 dead letter，不丢失 AgentRuns 审计。
-Feishu events/card-actions/Bitable 契约测试保留为 deferred adapter 测试，不能作为第一版主链路验收项。
+飞书机器人不在群、用户不在可用范围、缺少消息权限时，不发送卡片并写入可读错误。
+遇到 429 或 飞书限频错误时尊重 Retry-After，进入持久退避重试；超过上限进入 dead letter，不丢失 AgentRuns 审计。
+Bitable 契约测试作为第一版主链路的一部分，但必须在 HumanApproval 后通过 outbox 执行。Discord 契约测试仅作为 optional adapter。
 ```
 
 ## 12. 容器隔离测试
@@ -276,21 +276,21 @@ agent-* 容器不可访问其他 agent-* endpoint。
 没有 council_mode 自动选择和用户强制 full_council 规则。
 没有 headhunter_war_room_graph 根图。
 业务 graph 能绕过 CouncilDecision 直接执行。
-Codex / LangGraph / Discord / Hermes 的职责边界不清楚。
+Codex / LangGraph / 飞书 / Hermes 的职责边界不清楚。
 没有 AgentRuns 审计模型。
 没有 interrupt 人工确认设计。
-没有 Discord interaction 3 秒内 ACK/defer + 异步 graph 派发设计。
-没有 Discord interaction_id / custom_id / idempotency_key 幂等设计。
-没有 Discord button/modal 到 `HumanApproval` / resume 的设计。
-没有 DiscordGateway 的 bot token、follow-up token 时效、限频退避和 message/thread 更新设计。
+没有飞书事件/卡片 3 秒内 ACK/toast + 异步 graph 派发设计。
+没有飞书 event_id / action_id / idempotency_key 幂等设计。
+没有飞书卡片到 `HumanApproval` / resume 的设计。
+没有 FeishuGateway 的 tenant_access_token、卡片回调、限频退避和消息/卡片更新设计。
 没有 PostgreSQL + pgvector 第一版向量记忆主链路设计。
 没有 ContextPack 最小上下文注入和 Agent allowlist 设计。
 没有 MemoryGateway 的权限过滤、top-k、rerank、MMR 去重、token budget 裁剪和检索审计设计。
 没有 policy-engine / AgentHarness / ArtifactStore 设计。
 Agent 能直接互相调用。
-Agent 能直接访问数据库、公网、Discord、飞书或模型 Key。
-没有 Discord fake/mock gateway 契约测试能力。
-第一版主链路没有真实 Postgres、Postgres checkpointer、真实 Discord interactions、buttons、modals 和 War Room thread/message 接入方案。
+Agent 能直接访问数据库、公网、飞书、Discord optional adapter 或模型 Key。
+没有 Feishu fake/mock gateway 契约测试能力。
+第一版主链路没有真实 Postgres、Postgres checkpointer、真实飞书事件、交互卡片、War Room 群消息和 Bitable 同步 接入方案。
 候选人评分没有证据链。
 Mapping 结果没有来源和理由。
 敏感属性没有测试样例。
@@ -301,10 +301,10 @@ PII 日志策略不清楚。
 ## 14. 最终验收
 
 - 本地 API 可启动。
-- Discord slash command 能先进入 TaskIntakeParser，并在用户 double check approve 后进入同一个 `headhunter_war_room_graph`。
+- 飞书消息或卡片能先进入 TaskIntakeParser，并在用户 double check approve 后进入同一个 `headhunter_war_room_graph`。
 - TaskIntakeParser 输出关键字段有 field_source 和 confidence；无 source 推断只进入 assumptions。
 - double check approve 后冻结 CanonicalTaskBrief version；edit 生成新 version 并再次确认。
-- Discord interaction 入口先快速 ACK/defer 并异步处理，不会因 LLM/graph 超时导致 Discord interaction 失败。
+- 飞书事件/卡片入口先快速 ACK/toast 并异步处理，不会因 LLM/graph 超时导致 飞书回调失败。
 - `/council/deliberate` 能处理模糊和完整输入。
 - 每次运行输出 `council_mode` 和 `mode_reason`；用户要求“三省六部”时使用 `full_council`。
 - `/requisitions/calibrate` 能输出岗位作战单。
@@ -313,9 +313,9 @@ PII 日志策略不清楚。
 - 未人工确认不得写入业务数据、发布报告、创建外部任务、保存推荐结论或发送外部触达。
 - 任务授权后的 War Room 进度卡、追问卡、确认卡和结果卡可自动发送，并写入 AgentRuns。
 - `Command(resume=...)` 能用同一个 `thread_id` 恢复执行。
-- `/discord/interactions` 能承接 Discord button/modal approve/edit/reject，且重复点击不会重复执行。
-- DiscordGateway 能处理 bot token、follow-up token 时效、权限不足、限频、消息更新失败和 dead letter。
-- 第一版主链路使用 Postgres、pgvector 和真实 Discord interactions；mock / fake gateway 仅用于测试和失败隔离。
+- `/feishu/card-actions` 能承接飞书卡片 approve/edit/reject，且重复点击不会重复执行。
+- FeishuGateway 能处理 tenant_access_token、权限不足、限频、消息/卡片更新失败和 dead letter。
+- 第一版主链路使用 Postgres、pgvector 和真实飞书事件、交互卡片和 Bitable 同步；mock / fake gateway 仅用于测试和失败隔离。
 - Hermes/MCP 只能通过公开 API 调用，不能绕过根图、policy 或 action-gateway。
 - Agent 权限、Artifact 依赖、token 预算、记忆审批和 War Room 可观测全部有测试。
 - 第一版使用 Postgres + pgvector + 真实 MemoryGateway；mock / fake 只用于测试。

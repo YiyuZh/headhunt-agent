@@ -23,6 +23,7 @@ class AgentPolicy(BaseModel):
     can_read_artifact_content: bool = False
     pii_access_level: PiiLevel = PiiLevel.none
     allowed_side_effects: list[str] = Field(default_factory=list)
+    model_profile_id: UUID | None = None
     policy_version: str = "v1"
 
 
@@ -44,6 +45,11 @@ class AgentTask(BaseModel):
     feishu_chat_id: str | None = None
     artifact_refs: list[ArtifactRef] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)
+    model_profile_id: UUID | None = None
+    model_owner_user_id: str | None = None
+    model_guild_id: str | None = None
+    model_tenant_id: str | None = None
+    embedding_profile_id: UUID | None = None
     policy: AgentPolicy
 
     @model_validator(mode="after")

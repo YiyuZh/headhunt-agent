@@ -1,8 +1,12 @@
-# Discord 接入设计
+# Discord optional adapter 接入设计
 
 ## 状态
 
-本文是 Discord First 主链路的工程设计。当前 Discord interaction、slash command 注册、button、select menu、modal、War Room thread/message、DiscordGateway、discord_outbox 尚未实现；真实 Discord 联调未验证。
+本文是 Discord optional adapter 的工程设计，不再作为第一版主入口或主验收路径。当前 `/discord/interactions` 已实现 Ed25519
+signature 校验、PING/PONG 和 `/model add/list/use/test/revoke` BYOK 模型配置；
+`/discord/commands/register` 和 `lietou-discord-register-commands` 已实现 slash command
+注册能力；`/headhunt`、button、select menu、modal 审批、War Room thread/message、
+DiscordGateway、discord_outbox 尚未完成真实端到端联调。后续如重新接入 Discord，必须复用 Feishu First 已确定的 CanonicalTaskBrief、ReviewGate、MemoryGateway、HumanApproval 和 Gateway 边界。
 
 参考官方文档：
 - [Receiving and Responding to Interactions](https://docs.discord.com/developers/interactions/receiving-and-responding)
@@ -13,9 +17,9 @@
 
 ## 总原则
 
-- `/discord/interactions` 是第一版用户入口。
-- interaction HTTP 请求只做 signature 校验、allowlist、幂等、落库、outbox 和 ACK/defer。
-- 完整 AI workflow 必须在 ACK 后由 worker 异步执行。
+- `/discord/interactions` 是后续 optional adapter 入口，不是第一版用户入口。
+- interaction HTTP 请求只做 signature 校验、allowlist、轻量命令处理、幂等、落库、outbox 和 ACK/defer；当前代码只实现 PING + `/model` BYOK。
+- optional adapter 的完整 AI workflow 也必须在 ACK 后由 worker 异步执行。
 - 用户必须 double check 结构化任务后才启动正式 graph。
 - v1 使用 slash commands、buttons、select menus、modals，不依赖 `MESSAGE_CONTENT` privileged intent。
 - Discord follow-up token 有时效限制；长期进度更新使用 bot token 发送或更新 message/thread。
@@ -53,8 +57,9 @@ sequenceDiagram
 读取 raw body，不先 JSON 解析。
 读取 X-Signature-Ed25519。
 读取 X-Signature-Timestamp。
-用 DISCORD_PUBLIC_KEY 校验 timestamp + raw_body。
-拒绝过旧 timestamp，防止重放。
+用 DISCORD_PUBLIC_KEY 校验 timestamp + raw_body，并按 `DISCORD_SIGNATURE_MAX_AGE_SECONDS`
+默认 300 秒拒绝过旧或未来偏移过大的 interaction，降低 replay 风险。后续 event log /
+outbox 阶段再补 interaction_id/custom_id 级 durable replay 审计。
 处理 PING 并返回 PONG。
 校验 application_id、guild_id、channel_id allowlist。
 ```
@@ -231,6 +236,8 @@ DISCORD_ALLOWED_GUILD_IDS=
 DISCORD_ALLOWED_CHANNEL_IDS=
 DISCORD_INTERACTION_CALLBACK_PATH=/discord/interactions
 DISCORD_COMMAND_REGISTER_GUILD_ID=
+DISCORD_API_BASE_URL=https://discord.com/api/v10
+DISCORD_SIGNATURE_MAX_AGE_SECONDS=300
 ```
 
 管理员操作：

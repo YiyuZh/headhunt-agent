@@ -1,4 +1,5 @@
 from typing import Any, Protocol
+from uuid import UUID
 
 from app.schemas.context import ContextPack
 from app.schemas.memory import MemoryItem, MemoryRef
@@ -60,4 +61,8 @@ class LLMGateway(Protocol):
         output_schema: dict[str, Any],
         schema_name: str,
         max_output_tokens: int,
+        model_profile_id: UUID | None = None,
+        model_owner_user_id: str | None = None,
+        model_guild_id: str | None = None,
+        model_tenant_id: str | None = None,
     ) -> dict[str, Any]: ...

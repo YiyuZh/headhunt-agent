@@ -3,6 +3,7 @@ import json
 import pytest
 
 from app.gateways.llm import (
+    DeepSeekChatCompletionsLLMGateway,
     LLMGatewayError,
     OpenAIResponsesLLMGateway,
     to_openai_strict_json_schema,
@@ -83,6 +84,71 @@ def test_openai_responses_gateway_rejects_invalid_json_text() -> None:
         api_key="sk-test",
         model="gpt-test",
         client=FakeHttpClient(FakeHttpResponse({"output_text": "not-json"})),
+    )
+
+    with pytest.raises(LLMGatewayError):
+        gateway.generate_structured(
+            agent_name="StrategyDraftAgent",
+            context_pack=make_context_pack(),
+            output_schema={"type": "object"},
+            schema_name="agent_output",
+            max_output_tokens=800,
+        )
+
+
+def test_deepseek_chat_gateway_uses_json_output_mode_without_raw_state() -> None:
+    client = FakeHttpClient(
+        FakeHttpResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {"summary": "ok", "artifact_payload": {"answer": "done"}},
+                                ensure_ascii=False,
+                            )
+                        }
+                    }
+                ]
+            }
+        )
+    )
+    gateway = DeepSeekChatCompletionsLLMGateway(
+        api_key="sk-deepseek",
+        model="deepseek-v4-pro",
+        client=client,
+    )
+
+    result = gateway.generate_structured(
+        agent_name="StrategyDraftAgent",
+        context_pack=make_context_pack(),
+        output_schema={"type": "object"},
+        schema_name="agent_output",
+        max_output_tokens=800,
+    )
+
+    assert result["summary"] == "ok"
+    url, headers, body = client.posts[0]
+    assert url == "https://api.deepseek.com/chat/completions"
+    assert headers["Authorization"] == "Bearer sk-deepseek"
+    assert body["model"] == "deepseek-v4-pro"
+    assert body["response_format"] == {"type": "json_object"}
+    assert body["thinking"] == {"type": "enabled"}
+    assert body["reasoning_effort"] == "high"
+    user_payload = json.loads(body["messages"][1]["content"])
+    assert "context_pack" in user_payload
+    assert "json_schema" in user_payload
+    assert "recruitment_state" not in body["messages"][1]["content"]
+    assert "node_history" not in body["messages"][1]["content"]
+
+
+def test_deepseek_chat_gateway_rejects_invalid_json_content() -> None:
+    gateway = DeepSeekChatCompletionsLLMGateway(
+        api_key="sk-deepseek",
+        model="deepseek-v4-pro",
+        client=FakeHttpClient(
+            FakeHttpResponse({"choices": [{"message": {"content": "not-json"}}]})
+        ),
     )
 
     with pytest.raises(LLMGatewayError):

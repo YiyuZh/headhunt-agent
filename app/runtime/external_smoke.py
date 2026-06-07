@@ -8,7 +8,7 @@ import httpx
 from app.core.config import Settings, get_settings
 from app.feishu.gateways import FeishuAuthProvider, FeishuHttpBitableGateway, FeishuHttpGateway
 from app.gateways.embeddings import OpenAIEmbeddingGateway
-from app.gateways.llm import OpenAIResponsesLLMGateway
+from app.gateways.llm import DeepSeekChatCompletionsLLMGateway, OpenAIResponsesLLMGateway
 from app.schemas.common import CouncilMode
 from app.schemas.context import ContextPack
 
@@ -38,6 +38,7 @@ def run_external_smoke_check(
     include_bitable: bool = True,
     include_openai: bool = True,
     include_llm: bool = True,
+    include_deepseek: bool = False,
 ) -> ExternalSmokeReport:
     resolved_settings = settings or get_settings()
     checks: list[ExternalSmokeCheck] = []
@@ -51,6 +52,9 @@ def run_external_smoke_check(
         checks.extend(_run_openai_checks(resolved_settings, openai_client, include_llm))
     else:
         checks.append(_skipped("openai", "OpenAI smoke checks skipped by CLI flag."))
+
+    if include_deepseek:
+        checks.append(_run_deepseek_check(resolved_settings, openai_client))
 
     return _report(checks)
 
@@ -67,6 +71,11 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Skip the OpenAI Responses LLM smoke call but still check embeddings.",
     )
+    parser.add_argument(
+        "--include-deepseek",
+        action="store_true",
+        help="Also run a DeepSeek chat JSON smoke call with DEEPSEEK_API_KEY.",
+    )
     args = parser.parse_args(argv)
 
     report = run_external_smoke_check(
@@ -74,6 +83,7 @@ def main(argv: list[str] | None = None) -> None:
         include_bitable=not args.skip_bitable,
         include_openai=not args.skip_openai,
         include_llm=not args.skip_llm,
+        include_deepseek=args.include_deepseek,
     )
     print(_report_json(report))
     if report.status == "failed":
@@ -182,11 +192,15 @@ def _run_openai_checks(
 
 
 def _run_embedding_check(settings: Settings, client: httpx.Client | None) -> ExternalSmokeCheck:
-    if not settings.llm_api_key or not settings.embedding_model:
-        return _failed("openai_embedding", "LLM_API_KEY and EMBEDDING_MODEL are required.")
+    api_key = settings.embedding_api_key_value()
+    if not api_key or not settings.embedding_model:
+        return _failed(
+            "openai_embedding",
+            "EMBEDDING_API_KEY/OPENAI_API_KEY and EMBEDDING_MODEL are required.",
+        )
     try:
         vectors = OpenAIEmbeddingGateway(
-            api_key=settings.llm_api_key.get_secret_value(),
+            api_key=api_key.get_secret_value(),
             model=settings.embedding_model,
             client=client,
         ).embed_texts(["lietou external smoke"], purpose="external_smoke")
@@ -220,6 +234,37 @@ def _run_llm_check(settings: Settings, client: httpx.Client | None) -> ExternalS
     if not isinstance(result.get("ok"), bool):
         return _failed("openai_llm", "OpenAI Responses result did not match smoke schema.")
     return _ok("openai_llm", "OpenAI Responses API returned strict structured JSON.")
+
+
+def _run_deepseek_check(settings: Settings, client: httpx.Client | None) -> ExternalSmokeCheck:
+    if not settings.deepseek_api_key:
+        return _skipped(
+            "deepseek_llm",
+            "DEEPSEEK_API_KEY is not set. Discord BYOK user profiles are tested separately.",
+        )
+    try:
+        result = DeepSeekChatCompletionsLLMGateway(
+            api_key=settings.deepseek_api_key.get_secret_value(),
+            model=settings.deepseek_model,
+            base_url=settings.deepseek_base_url,
+            thinking=settings.deepseek_thinking,
+            reasoning_effort=settings.deepseek_reasoning_effort,
+            client=client,
+        ).generate_structured(
+            agent_name="ExternalSmokeAgent",
+            context_pack=_smoke_context_pack(),
+            output_schema={
+                "type": "object",
+                "properties": {"ok": {"type": "boolean"}},
+            },
+            schema_name="external_smoke",
+            max_output_tokens=64,
+        )
+    except Exception as exc:
+        return _failed("deepseek_llm", f"DeepSeek chat JSON check failed: {exc}")
+    if not isinstance(result.get("ok"), bool):
+        return _failed("deepseek_llm", "DeepSeek JSON result did not match smoke schema.")
+    return _ok("deepseek_llm", "DeepSeek chat API returned parseable JSON.")
 
 
 def _smoke_context_pack() -> ContextPack:

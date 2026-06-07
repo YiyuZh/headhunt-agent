@@ -56,14 +56,16 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
             ok=_present(settings.embedding_provider)
             and settings.embedding_provider == "openai"
             and _present(settings.embedding_model)
-            and _present(settings.llm_api_key),
+            and _present(settings.embedding_api_key_value()),
             message_ok="OpenAI embedding runtime is configured.",
             message_missing=(
-                "Set EMBEDDING_PROVIDER=openai, EMBEDDING_MODEL, and LLM_API_KEY before "
-                "real MemoryGateway retrieval/write."
+                "Set an OpenAI embedding model profile or EMBEDDING_API_KEY/OPENAI_API_KEY "
+                "before real MemoryGateway retrieval/write. Without it, memory vector "
+                "retrieval is skipped instead of using another user's key."
             ),
-            env_vars=["EMBEDDING_PROVIDER", "EMBEDDING_MODEL", "LLM_API_KEY"],
+            env_vars=["EMBEDDING_PROVIDER", "EMBEDDING_MODEL", "EMBEDDING_API_KEY"],
             required_for=["memory_gateway", "run_memory_vectorization"],
+            required=False,
         ),
         _check(
             name="internal_admin",
@@ -78,18 +80,32 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
             required_for=["internal_control_api", "manual_approval", "inspection"],
         ),
         _check(
-            name="llm_runtime",
+            name="user_model_profiles",
+            category="agent",
+            ok=_present(settings.model_secret_encryption_key),
+            message_ok="Discord BYOK user model profiles are enabled.",
+            message_missing=(
+                "Set MODEL_SECRET_ENCRYPTION_KEY before Discord users can save encrypted "
+                "OpenAI/DeepSeek model profiles. LLM_PROVIDER/LLM_API_KEY are only a local "
+                "debug fallback, not the multi-user Discord main path."
+            ),
+            env_vars=["MODEL_SECRET_ENCRYPTION_KEY"],
+            required_for=["agent_harness", "graph_dispatch"],
+        ),
+        _check(
+            name="legacy_llm_runtime",
             category="agent",
             ok=(settings.llm_provider or "").lower() in {"openai", "openai_responses"}
             and _present(settings.llm_model)
             and _present(settings.llm_api_key),
-            message_ok="OpenAI Responses LLM runtime is configured.",
+            message_ok="Legacy local OpenAI LLM fallback is configured.",
             message_missing=(
-                "Set LLM_PROVIDER=openai_responses, LLM_MODEL, and LLM_API_KEY before "
-                "real AgentHarness graph dispatch."
+                "Legacy LLM_PROVIDER/LLM_MODEL/LLM_API_KEY fallback is not configured. "
+                "This is acceptable for Discord BYOK runtime."
             ),
             env_vars=["LLM_PROVIDER", "LLM_MODEL", "LLM_API_KEY"],
-            required_for=["agent_harness", "graph_dispatch"],
+            required_for=["local_debug_fallback"],
+            required=False,
         ),
         _check(
             name="discord_app",
@@ -100,8 +116,7 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
             message_ok="Discord application credentials are configured.",
             message_missing=(
                 "Set DISCORD_PUBLIC_KEY, DISCORD_BOT_TOKEN, and DISCORD_APPLICATION_ID "
-                "before real Discord interactions are enabled. /discord/interactions is "
-                "still not implemented in the current code."
+                "before real Discord interactions are enabled."
             ),
             env_vars=[
                 "DISCORD_PUBLIC_KEY",
@@ -119,8 +134,7 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
             message_ok="Discord guild/channel allowlist is configured.",
             message_missing=(
                 "Set DISCORD_ALLOWED_GUILD_IDS and DISCORD_ALLOWED_CHANNEL_IDS before "
-                "real Discord use. This remains a deferred implementation warning until "
-                "/discord/interactions exists."
+                "real Discord use."
             ),
             env_vars=["DISCORD_ALLOWED_GUILD_IDS", "DISCORD_ALLOWED_CHANNEL_IDS"],
             required_for=["discord_interactions", "discord_war_room"],
@@ -129,14 +143,39 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
         _check(
             name="discord_interactions_implementation",
             category="discord",
-            ok=False,
-            message_ok="Discord interactions endpoint is implemented.",
+            ok=True,
+            message_ok="Discord interactions endpoint supports PING and /model BYOK commands.",
             message_missing=(
-                "/discord/interactions is not implemented yet; Discord real integration "
-                "remains unverified."
+                "/discord/interactions must support PING and /model BYOK commands."
             ),
             env_vars=[],
             required_for=["discord_interactions"],
+            required=False,
+        ),
+        _check(
+            name="discord_command_registration_implementation",
+            category="discord",
+            ok=True,
+            message_ok=(
+                "Discord command registration endpoint and CLI are implemented; real "
+                "Developer Portal command propagation still requires live Discord credentials."
+            ),
+            message_missing="/discord/commands/register must register slash commands.",
+            env_vars=["DISCORD_BOT_TOKEN", "DISCORD_APPLICATION_ID"],
+            required_for=["discord_slash_commands"],
+            required=False,
+        ),
+        _check(
+            name="discord_war_room_implementation",
+            category="discord",
+            ok=False,
+            message_ok="Discord War Room task flow is implemented.",
+            message_missing=(
+                "Discord War Room, task double check, ReviewGate, button/modal approval "
+                "and graph end-to-end flow are not implemented or real-world verified yet."
+            ),
+            env_vars=[],
+            required_for=["discord_war_room", "task_double_check", "review_gate"],
             required=False,
         ),
         _check(

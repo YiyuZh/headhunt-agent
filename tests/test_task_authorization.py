@@ -144,6 +144,7 @@ def test_task_authorization_service_enqueues_graph_dispatch_after_approval() -> 
     session = FakeSession()
     outbox = FakeOutboxWriter()
     thread_id = uuid4()
+    model_profile_id = uuid4()
 
     result = TaskAuthorizationService(
         session,
@@ -153,6 +154,9 @@ def test_task_authorization_service_enqueues_graph_dispatch_after_approval() -> 
             thread_id=thread_id,
             source_ref="manual-1",
             request_text="请用三省六部完整会审 AI 平台负责人岗位并生成人才地图",
+            model_profile_id=model_profile_id,
+            model_owner_user_id="discord-user-1",
+            model_guild_id="discord-guild-1",
         )
     )
 
@@ -160,6 +164,7 @@ def test_task_authorization_service_enqueues_graph_dispatch_after_approval() -> 
     assert result.thread_id == thread_id
     assert result.council_mode == CouncilMode.full_council
     assert result.source_ref == "manual-1"
+    assert result.model_profile_id == model_profile_id
     assert result.user_forced_full_council is True
     assert session.executed
     assert outbox.enqueued[0]["kind"] == "graph_dispatch"
@@ -170,6 +175,9 @@ def test_task_authorization_service_enqueues_graph_dispatch_after_approval() -> 
     assert payload["source_ref"] == "manual-1"
     assert payload["authorization"]["status"] == "authorized"
     assert payload["council_mode"] == "full_council"
+    assert payload["model_profile_id"] == str(model_profile_id)
+    assert payload["model_owner_user_id"] == "discord-user-1"
+    assert payload["model_guild_id"] == "discord-guild-1"
 
 
 def test_task_authorization_service_uses_stable_generated_source_ref() -> None:
@@ -230,6 +238,9 @@ def _request(
     source_ref: str | None = None,
     request_text: str = "请校准岗位需求",
     approved: bool = True,
+    model_profile_id=None,
+    model_owner_user_id: str | None = None,
+    model_guild_id: str | None = None,
 ):
     from app.schemas.tasks import TaskAuthorizeRequest
 
@@ -238,6 +249,9 @@ def _request(
         source="api",
         source_ref=source_ref,
         thread_id=thread_id,
+        model_profile_id=model_profile_id,
+        model_owner_user_id=model_owner_user_id,
+        model_guild_id=model_guild_id,
         approved=approved,
         approver={"user": "tester"},
     )

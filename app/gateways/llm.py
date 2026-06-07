@@ -1,6 +1,8 @@
 import json
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any, Protocol
+from uuid import UUID
 
 import httpx
 
@@ -9,6 +11,14 @@ from app.schemas.context import ContextPack
 
 class LLMGatewayError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class LLMModelInfo:
+    model_profile_id: UUID | None
+    model_provider: str
+    model_name: str
+    model_owner_user_id: str | None = None
 
 
 class LLMGateway(Protocol):
@@ -20,7 +30,20 @@ class LLMGateway(Protocol):
         output_schema: dict[str, Any],
         schema_name: str,
         max_output_tokens: int,
+        model_profile_id: UUID | None = None,
+        model_owner_user_id: str | None = None,
+        model_guild_id: str | None = None,
+        model_tenant_id: str | None = None,
     ) -> dict[str, Any]: ...
+
+    def model_info(
+        self,
+        *,
+        model_profile_id: UUID | None = None,
+        model_owner_user_id: str | None = None,
+        model_guild_id: str | None = None,
+        model_tenant_id: str | None = None,
+    ) -> LLMModelInfo: ...
 
 
 class OpenAIResponsesLLMGateway:
@@ -32,12 +55,20 @@ class OpenAIResponsesLLMGateway:
         base_url: str = "https://api.openai.com",
         timeout_seconds: float = 60.0,
         client: httpx.Client | None = None,
+        model_profile_id: UUID | None = None,
+        model_owner_user_id: str | None = None,
     ):
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.client = client or httpx.Client(timeout=timeout_seconds)
+        self._model_info = LLMModelInfo(
+            model_profile_id=model_profile_id,
+            model_provider="openai",
+            model_name=model,
+            model_owner_user_id=model_owner_user_id,
+        )
 
     def generate_structured(
         self,
@@ -47,6 +78,10 @@ class OpenAIResponsesLLMGateway:
         output_schema: dict[str, Any],
         schema_name: str,
         max_output_tokens: int,
+        model_profile_id: UUID | None = None,
+        model_owner_user_id: str | None = None,
+        model_guild_id: str | None = None,
+        model_tenant_id: str | None = None,
     ) -> dict[str, Any]:
         strict_schema = to_openai_strict_json_schema(output_schema)
         response = self.client.post(
@@ -93,6 +128,138 @@ class OpenAIResponsesLLMGateway:
         payload = response.json()
         return _extract_structured_json(payload)
 
+    def model_info(
+        self,
+        *,
+        model_profile_id: UUID | None = None,
+        model_owner_user_id: str | None = None,
+        model_guild_id: str | None = None,
+        model_tenant_id: str | None = None,
+    ) -> LLMModelInfo:
+        return self._model_info
+
+
+class DeepSeekChatCompletionsLLMGateway:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str = "deepseek-v4-pro",
+        base_url: str = "https://api.deepseek.com",
+        thinking: str = "enabled",
+        reasoning_effort: str = "high",
+        timeout_seconds: float = 60.0,
+        client: httpx.Client | None = None,
+        model_profile_id: UUID | None = None,
+        model_owner_user_id: str | None = None,
+    ):
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.thinking = thinking
+        self.reasoning_effort = reasoning_effort
+        self.client = client or httpx.Client(timeout=timeout_seconds)
+        self._model_info = LLMModelInfo(
+            model_profile_id=model_profile_id,
+            model_provider="deepseek",
+            model_name=model,
+            model_owner_user_id=model_owner_user_id,
+        )
+
+    def generate_structured(
+        self,
+        *,
+        agent_name: str,
+        context_pack: ContextPack,
+        output_schema: dict[str, Any],
+        schema_name: str,
+        max_output_tokens: int,
+        model_profile_id: UUID | None = None,
+        model_owner_user_id: str | None = None,
+        model_guild_id: str | None = None,
+        model_tenant_id: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an isolated recruiting workflow agent. "
+                        "Use only the provided ContextPack. Return valid JSON only. "
+                        f"The JSON object must match the schema named {schema_name}."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "agent_name": agent_name,
+                            "context_pack": context_pack.model_dump(mode="json"),
+                            "json_schema": output_schema,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                },
+            ],
+            "response_format": {"type": "json_object"},
+            "max_tokens": max_output_tokens,
+            "stream": False,
+        }
+        if self.reasoning_effort:
+            body["reasoning_effort"] = self.reasoning_effort
+        if self.thinking:
+            body["thinking"] = {"type": self.thinking}
+
+        response = self.client.post(
+            f"{self.base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json=body,
+        )
+        if response.status_code >= 400:
+            raise LLMGatewayError(
+                f"DeepSeek Chat Completions API error: HTTP {response.status_code}"
+            )
+        return _extract_chat_completion_json(response.json())
+
+    def model_info(
+        self,
+        *,
+        model_profile_id: UUID | None = None,
+        model_owner_user_id: str | None = None,
+        model_guild_id: str | None = None,
+        model_tenant_id: str | None = None,
+    ) -> LLMModelInfo:
+        return self._model_info
+
+
+def get_gateway_model_info(
+    gateway: LLMGateway,
+    *,
+    model_profile_id: UUID | None = None,
+    model_owner_user_id: str | None = None,
+    model_guild_id: str | None = None,
+    model_tenant_id: str | None = None,
+) -> LLMModelInfo:
+    model_info = getattr(gateway, "model_info", None)
+    if callable(model_info):
+        return model_info(
+            model_profile_id=model_profile_id,
+            model_owner_user_id=model_owner_user_id,
+            model_guild_id=model_guild_id,
+            model_tenant_id=model_tenant_id,
+        )
+    return LLMModelInfo(
+        model_profile_id=model_profile_id,
+        model_provider="unknown",
+        model_name="unknown",
+        model_owner_user_id=model_owner_user_id,
+    )
+
 
 def _extract_structured_json(payload: dict[str, Any]) -> dict[str, Any]:
     output_text = payload.get("output_text")
@@ -110,6 +277,22 @@ def _extract_structured_json(payload: dict[str, Any]) -> dict[str, Any]:
                 return _parse_json_object(text)
 
     raise LLMGatewayError("OpenAI Responses API response did not contain structured JSON text")
+
+
+def _extract_chat_completion_json(payload: dict[str, Any]) -> dict[str, Any]:
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise LLMGatewayError("chat completion response did not contain choices")
+    first_choice = choices[0]
+    if not isinstance(first_choice, dict):
+        raise LLMGatewayError("chat completion choice is not an object")
+    message = first_choice.get("message")
+    if not isinstance(message, dict):
+        raise LLMGatewayError("chat completion choice missing message")
+    content = message.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise LLMGatewayError("chat completion response did not contain JSON content")
+    return _parse_json_object(content)
 
 
 def to_openai_strict_json_schema(schema: dict[str, Any]) -> dict[str, Any]:

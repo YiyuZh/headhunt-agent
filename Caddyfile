@@ -2,9 +2,9 @@
     encode zstd gzip
 
     @public path /health /discord/interactions /feishu/events /feishu/card-actions
-    @internal path /ready /version /tasks* /approvals* /threads* /runs* /council* /docs* /redoc* /openapi.json
+    @internal path /ready /version /discord/commands/register /tasks* /approvals* /threads* /runs* /council* /docs* /redoc* /openapi.json
     @missingAdmin {
-        path /ready /version /tasks* /approvals* /threads* /runs* /council* /docs* /redoc* /openapi.json
+        path /ready /version /discord/commands/register /tasks* /approvals* /threads* /runs* /council* /docs* /redoc* /openapi.json
         not header X-Internal-Admin-Key *
     }
 

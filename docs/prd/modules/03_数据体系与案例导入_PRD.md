@@ -14,12 +14,12 @@
 
 ```text
 第一版主数据库：PostgreSQL + pgvector + seed files
-团队协作工作台：Discord War Room
+团队协作工作台：飞书 War Room
 运行时 checkpoint：PostgreSQL checkpointer
 向量记忆检索：PostgreSQL + pgvector
 ```
 
-Discord 是第一版工作台，PostgreSQL 是系统状态、记忆、向量索引、审计、测试和可重复执行的底座。Feishu/Bitable 仅作为 deferred adapter。第一版主路径直接启用 pgvector；Qdrant / Milvus 只保留适配接口，不作为首版依赖。SQLite 只允许作为个人临时实验，不进入第一版验收主路径。
+飞书是第一版工作台，PostgreSQL 是系统状态、记忆、向量索引、审计、测试和可重复执行的底座；Bitable 只做人工确认后的业务展示和同步表。第一版主路径直接启用 pgvector；Qdrant / Milvus 只保留适配接口，不作为首版依赖。SQLite 只允许作为个人临时实验，不进入第一版验收主路径。
 
 记忆相关表第一版必须进入主 schema：
 
@@ -128,7 +128,7 @@ next_followup_at,notes
 -> 脱敏检查
 -> 生成稳定 ID
 -> 写入 PostgreSQL
--> 同步到 PostgreSQL 仓储；Feishu/Bitable 同步只在 deferred adapter 启用后执行
+-> 同步到 PostgreSQL 仓储；人工确认后可同步 Bitable 展示表
 -> 写入 import_run 审计
 ```
 
@@ -136,9 +136,9 @@ next_followup_at,notes
 
 - 案例数据默认 `source="case_data"`。
 - 重复 ID 默认 update，不重复则 create。
-- 简历原文可以先存 ArtifactStore，Discord/War Room 只展示摘要和附件引用。
+- 简历原文可以先存 ArtifactStore，飞书 War Room 只展示摘要和附件引用。
 - 同一个候选人可匹配多个岗位，用 `candidate_requisition_matches` 关联。
-- 第一版导入主写入 PostgreSQL repositories。启用 Feishu/Bitable deferred adapter 时，必须走 `FeishuBitableGateway`，通过 `app_token` + `table_id` registry 定位表，不允许在导入脚本或业务节点硬编码。
+- 第一版导入主写入 PostgreSQL repositories。同步 Bitable 时，必须走 `FeishuBitableGateway`，通过 `app_token` + `table_id` registry 定位表，不允许在导入脚本或业务节点硬编码。
 - deferred 多维表格写入前必须校验编辑权限；缺权限时写入 `import_run` 失败原因，不得只写 PostgreSQL 后假装同步成功。
 - deferred 批量新增/更新必须按飞书接口上限分片；同一业务表使用稳定业务 ID 做 upsert，避免重复创建记录。
 - deferred 多维表格部分失败必须记录成功记录、失败记录、错误码和可重试状态。
@@ -167,5 +167,5 @@ GET /data/import-runs/{run_id}
 - 导入时进行脱敏检查。
 - 导入结果写入 PostgreSQL 审计。
 - RunMemory、CaseMemory 和经审批的长期记忆可写入 `memory_items` 并生成 pgvector embedding。
-- 第一版导入结果主写 PostgreSQL；Feishu/Bitable 同步为 deferred adapter，测试中可使用 fake gateway 验证调用契约。
+- 第一版导入结果主写 PostgreSQL；Bitable 同步为人工确认后的展示链路，测试中可使用 fake gateway 验证调用契约。
 - case_data 不与 production_data 混淆。

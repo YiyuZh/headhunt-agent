@@ -31,6 +31,67 @@ class MemoryPolicyError(RuntimeError):
     pass
 
 
+class DisabledMemoryGateway:
+    def __init__(self, *, session: Session | None = None, reason: str):
+        self.session = session
+        self.reason = reason
+
+    def retrieve(
+        self,
+        agent_name: str,
+        task_brief: str,
+        memory_scopes: list[str],
+        filters: dict[str, Any],
+        top_k: int,
+        max_tokens: int,
+        policy: dict[str, Any],
+    ) -> list[MemoryRef]:
+        self._audit(
+            agent_name=agent_name,
+            task_brief=task_brief,
+            allowed_scopes=memory_scopes,
+            filters=filters,
+            excluded_reason=[self.reason],
+        )
+        return []
+
+    def propose_update(self, agent_name: str, item: MemoryItemSchema) -> str | None:
+        return None
+
+    def approve_update(self, proposal_id: str, reviewer: str) -> None:
+        raise MemoryPolicyError("memory gateway is disabled")
+
+    def revoke_update(self, memory_id: str, reviewer: str, reason: str) -> None:
+        raise MemoryPolicyError("memory gateway is disabled")
+
+    def _audit(
+        self,
+        *,
+        agent_name: str,
+        task_brief: str,
+        allowed_scopes: list[str],
+        filters: dict[str, Any],
+        excluded_reason: list[str],
+    ) -> None:
+        if self.session is None:
+            return
+        self.session.add(
+            MemoryRetrievalAudit(
+                thread_id=filters.get("thread_id"),
+                run_id=filters.get("run_id"),
+                agent_name=agent_name,
+                task_brief_hash=hashlib.sha256(task_brief.encode("utf-8")).hexdigest(),
+                allowed_scopes=allowed_scopes,
+                filters=_json_safe(filters),
+                candidate_memory_ids=[],
+                selected_memory_refs=[],
+                excluded_reason=excluded_reason,
+                token_estimate=0,
+            )
+        )
+        self.session.flush()
+
+
 class PostgresMemoryGateway:
     def __init__(
         self,

@@ -16,7 +16,7 @@ class FakeResult:
 
 
 class FakeConnection:
-    def __init__(self, *, alembic_version="20260605_0002", vector_installed=True):
+    def __init__(self, *, alembic_version="20260607_0003", vector_installed=True):
         self.alembic_version = alembic_version
         self.vector_installed = vector_installed
 

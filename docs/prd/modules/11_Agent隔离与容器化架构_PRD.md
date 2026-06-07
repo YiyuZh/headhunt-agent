@@ -2,7 +2,7 @@
 
 ## 1. 模块目标
 
-本模块定义目标系统的硬隔离架构。系统允许不同 Agent 协作，但不允许主 Agent 越级替子 Agent 做业务，也不允许子 Agent 越权调用其他 Agent、数据库、Discord、飞书 deferred adapter、模型 Key 或公网。
+本模块定义目标系统的硬隔离架构。系统允许不同 Agent 协作，但不允许主 Agent 越级替子 Agent 做业务，也不允许子 Agent 越权调用其他 Agent、数据库、Discord、飞书、模型 Key 或公网。
 
 核心原则：
 
@@ -51,15 +51,16 @@ redis
 | `orchestrator-api` | FastAPI 入口、thread_id、调用 LangGraph 根图 | 不直接写外部工作台、不跳过 policy |
 | `agent-*` | 单一 Agent 职责内的结构化判断 | 不互相调用、不直接访问外部资源 |
 | `policy-engine` | 生成和校验 AgentPolicy、TaskPlan、预算 | 不生成业务结论 |
-| `agent-harness` | 调度 Agent、注入 skill、记录 token/tool 使用 | 不执行 Discord/飞书副作用 |
+| `agent-harness` | 调度 Agent、注入 skill、记录 token/tool 使用 | 不执行飞书、Bitable 或 Discord optional adapter 副作用 |
 | `artifact-store` | 保存 AgentArtifact、版本、证据引用 | 不做模型推理 |
-| `model-gateway` | 统一模型调用和结构化输出 | 不接触 Discord、飞书和业务数据库写入 |
+| `model-gateway` | 统一模型调用和结构化输出 | 不接触飞书、Discord optional adapter 和业务数据库写入 |
 | `search-gateway` | 受控公网搜索和来源记录 | 不抓取未经授权的个人数据 |
 | `database-gateway` | 受控数据库查询、字段脱敏、审计 | 不开放原始连接给 Agent |
 | `memory-gateway` | pgvector 记忆检索、写入提案、审批更新、裁剪和检索审计 | 不允许静默写长期记忆、不返回越权全文 |
 | `action-gateway` | 人工确认后的业务写入、外部发送、建文档、建任务 | 不接受未 interrupt 的业务副作用动作 |
-| `channel-gateway` | DiscordGateway 主实现，统一消息/thread/card/modal/outbox | 不承载 Agent 决策逻辑 |
-| `feishu-gateway` | Feishu deferred adapter，token 管理、回调校验、卡片发送限频、多维表格分片写入 | 不承载 Agent 决策逻辑，不作为第一版主路径 |
+| `feishu-gateway` | FeishuGateway 主实现，统一事件、卡片、群消息、outbox、限频和权限 | 不承载 Agent 决策逻辑，不绕过 outbox |
+| `bitable-gateway` | FeishuBitableGateway，人工确认后的多维表格分片写入和 record_id 映射 | 不作为主库，不接受未审批写入 |
+| `channel-gateway` | 跨渠道抽象，后续可挂 Discord optional adapter | 不承载 Agent 决策逻辑 |
 
 ## 3. 网络分区
 
@@ -69,9 +70,10 @@ model-gateway -> 模型 API
 search-gateway -> 公网搜索
 database-gateway -> postgres
 memory-gateway -> postgres / pgvector
-channel-gateway -> Discord API
-feishu-gateway -> 飞书 API（deferred adapter）
-action-gateway -> feishu-gateway / database-gateway
+feishu-gateway -> 飞书 API
+bitable-gateway -> 飞书 Bitable API
+channel-gateway -> feishu-gateway / optional Discord adapter
+action-gateway -> feishu-gateway / bitable-gateway / database-gateway
 orchestrator-api -> LangGraph checkpointer / policy-engine / agent-harness
 ```
 
@@ -104,7 +106,7 @@ Secrets 规则：
 
 ```text
 模型 Key 只给 model-gateway。
-Discord bot token/public key 只给 channel-gateway；飞书 app_secret / verification token / encrypt key 只给 deferred feishu-gateway。
+飞书 app_secret、verification token、encrypt key 只给 feishu-gateway；Discord bot token/public key 只给 optional adapter。
 数据库写凭证只给 database-gateway / action-gateway。
 Agent 容器只拿短时任务 token，不拿长期 secret。
 Agent 容器不能拿 pgvector 直连凭证，记忆检索必须经 memory-gateway。
@@ -194,7 +196,7 @@ can_execute_side_effects = false
 Agent 输出 ActionProposal artifact
 -> Review Node
 -> interrupt()
--> Discord 确认卡片或 modal approve/edit/reject
+-> 飞书确认卡片或表单 approve/edit/reject
 -> action-gateway
 -> feishu-gateway / database-gateway
 -> AgentRuns 审计
@@ -207,12 +209,12 @@ Postgres checkpoint
 AgentRuns
 RunMemory
 ArtifactStore
-Discord/Channel event logs、Feishu deferred 回调幂等记录
+Feishu event/card action logs、Discord optional adapter 幂等记录
 RunMemory embedding / memory_retrieval_audit
 任务授权后的 War Room 进度卡 / 追问卡 / 确认卡 / 结果卡
 ```
 
-`channel-gateway` 自动发送 War Room 卡片前必须完成机器人入群/可用范围/权限预检查、卡片 JSON 校验和 per channel / per user 限频。遇到 429 或权限错误时只记录审计并返回可读错误，不得让 Agent 绕过 gateway 重试。`feishu-gateway` 遵循同样规则但仅作为 deferred adapter。
+`feishu-gateway` 自动发送 War Room 卡片前必须完成机器人入群/可用范围/权限预检查、卡片 JSON 校验和 per channel / per user 限频。遇到 429 或权限错误时只记录审计并返回可读错误，不得让 Agent 绕过 gateway 重试。Discord optional adapter 后续接入时遵循同样规则。
 
 禁止：
 
@@ -227,7 +229,7 @@ Agent 直接 publish_report
 ## 8. 容器化验收标准
 
 - 每个 Agent 容器只能访问 allowlist 网络目标。
-- 每个 Agent 容器无模型 Key、无 Discord/飞书 Key、无数据库写凭证。
+- 每个 Agent 容器无模型 Key、无 飞书/Discord optional adapter Key、无数据库写凭证。
 - 任何越权调用都会被 `policy-engine` 拒绝并写入审计。
 - 任何业务副作用请求必须有 `HumanApproval` 和 `interrupt_id`。
 - 任务授权后的 War Room 进度卡、追问卡、确认卡和结果卡可自动发送，并必须写入 AgentRuns。

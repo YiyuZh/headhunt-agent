@@ -25,7 +25,8 @@ def test_ready_uses_postgres_main_path() -> None:
     assert checks["database_configured"] is True
     assert checks["checkpoint_configured"] is True
     assert checks["vector_store_provider"] == "pgvector"
-    assert "LLM_API_KEY" in body["missing_required"]
+    assert "MODEL_SECRET_ENCRYPTION_KEY" in body["missing_required"]
+    assert "LLM_API_KEY" not in body["missing_required"]
     assert "FEISHU_APP_ID" not in body["missing_required"]
     assert any(
         detail["name"] == "feishu_openapi" and detail["status"] == "warning"
@@ -33,14 +34,13 @@ def test_ready_uses_postgres_main_path() -> None:
     )
 
 
-def test_ready_reports_degraded_until_discord_interactions_are_implemented() -> None:
+def test_ready_reports_degraded_until_discord_war_room_is_implemented() -> None:
     settings = Settings(
         internal_admin_api_key="test-admin",
+        model_secret_encryption_key="model-secret",
         embedding_provider="openai",
         embedding_model="text-embedding-3-small",
-        llm_provider="openai_responses",
-        llm_model="gpt-4.1-mini",
-        llm_api_key="sk-test",
+        embedding_api_key="embedding-secret",
         discord_public_key="discord-public",
         discord_bot_token="discord-token",
         discord_application_id="discord-app",
@@ -65,10 +65,24 @@ def test_ready_reports_degraded_until_discord_interactions_are_implemented() -> 
     assert body["status"] == "degraded"
     assert body["missing_required"] == []
     assert body["checks"]["llm_configured"] is True
+    assert body["checks"]["user_model_profiles_enabled"] is True
     assert body["checks"]["feishu_bitable_configured"] is True
-    assert body["checks"]["discord_interactions_implemented"] is False
+    assert body["checks"]["discord_interactions_implemented"] is True
+    assert body["checks"]["discord_model_commands_implemented"] is True
+    assert body["checks"]["discord_command_registration_implemented"] is True
+    assert body["checks"]["discord_war_room_implemented"] is False
     assert any(
         detail["name"] == "discord_interactions_implementation"
+        and detail["status"] == "ok"
+        for detail in body["details"]
+    )
+    assert any(
+        detail["name"] == "discord_command_registration_implementation"
+        and detail["status"] == "ok"
+        for detail in body["details"]
+    )
+    assert any(
+        detail["name"] == "discord_war_room_implementation"
         and detail["status"] == "warning"
         for detail in body["details"]
     )

@@ -101,16 +101,16 @@ optional_agents
 allowed_gateways
 ```
 
-`council_mode` 由 `PolicyEngine` 和 `AgentHarness` 自动选择，取值为 `triage | lite | standard | full_council`。用户明确要求“三省六部”时，`user_forced_full_council=true` 且必须使用 `full_council`。所有 API 响应、Discord War Room 卡片和 AgentRuns 都必须记录本次实际使用的 `council_mode`、`mode_reason`、`required_agents` 和 `optional_agents`。
+`council_mode` 由 `PolicyEngine` 和 `AgentHarness` 自动选择，取值为 `triage | lite | standard | full_council`。用户明确要求“三省六部”时，`user_forced_full_council=true` 且必须使用 `full_council`。所有 API 响应、飞书 War Room 卡片和 AgentRuns 都必须记录本次实际使用的 `council_mode`、`mode_reason`、`required_agents` 和 `optional_agents`。
 
 正式 graph 前置任务确认：
 
 ```text
-POST /discord/interactions
+POST /feishu/events + POST /feishu/card-actions
 -> TaskIntakeParser
 -> CanonicalTaskBrief
 -> SchemaValidator
--> Discord 任务确认卡
+-> 飞书任务确认卡
 -> 用户 approve / edit / reject
 -> approve 后冻结 CanonicalTaskBrief version
 -> approve 后才排队 graph_dispatch
@@ -266,7 +266,7 @@ context gate：Agent 只能接收 `AgentHarness.build_context_pack` 生成的 Co
 
 ```text
 自动写入：Postgres checkpoint、AgentRuns、RunMemory、ArtifactStore、任务授权后的 War Room 进度卡 / 追问卡 / 确认卡 / 结果卡。
-必须人工确认：业务表写入、候选人推荐结论、报告发布、Discord 对外触达发送、飞书/Bitable deferred adapter 写入、外部触达发送。
+必须人工确认：业务表写入、候选人推荐结论、报告发布、Bitable 业务同步写入、飞书对外触达发送、外部触达发送。
 必须审批：长期记忆写入 ProjectMemory / AgentMemory / CaseMemory / UserCorrectionMemory。
 ```
 
@@ -295,8 +295,8 @@ needs_fix 不得重跑完整 graph，也不得重跑无关上游节点。
 - 简历关键词抽取以当前简历/JD artifact 为主；长期记忆只提供 taxonomy、项目规则、用户修正和 SOP，不得覆盖当前 artifact 事实。
 - Agent 节点不能直接调用另一个 Agent 节点。
 - 下游 Agent 不能重新解析原始任务、原始简历或完整聊天历史，除非 `SchemaConflictReviewer` 明确判定结构化输入不足。
-- Agent 节点不能直接访问数据库、公网、Discord SDK、飞书 SDK、模型 API。
-- 工具调用必须经 `SearchGateway`、`DatabaseGateway`、`MemoryGateway`、`ChannelGateway`、`DiscordGateway` 或 `ActionGateway`。
+- Agent 节点不能直接访问数据库、公网、飞书 SDK、Discord SDK、模型 API。
+- 工具调用必须经 `SearchGateway`、`DatabaseGateway`、`MemoryGateway`、`ChannelGateway`、`FeishuGateway`、`FeishuBitableGateway` 或 `ActionGateway`。
 - LLM 节点失败时写 `errors`，不吞异常。
 - Review Node 后才能进入 `interrupt()`。
 - `interrupt()` resume 后才能执行写入、发消息、创建文档、创建任务。
@@ -305,7 +305,7 @@ needs_fix 不得重跑完整 graph，也不得重跑无关上游节点。
 
 ## 11. 验收标准
 
-- Discord、本地 API、未来 Hermes/MCP 都调用同一根图。
+- 飞书、本地 API、未来 Hermes/MCP 都调用同一根图。
 - 正式 graph 运行前必须有用户 double check approve。
 - double check approve 后必须冻结 CanonicalTaskBrief version，下游 Agent 只能读冻结版。
 - 所有业务 graph 都读取 `CouncilDecision`。

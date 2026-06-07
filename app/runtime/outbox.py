@@ -79,6 +79,22 @@ class LangGraphOutboxHandler:
 
 
 def feishu_payload_to_initial_state(payload: dict[str, Any]) -> dict[str, Any]:
+    if _first_str(payload.get("thread_id")) and _first_str(payload.get("user_input")):
+        return {
+            "thread_id": _required_str(payload, "thread_id"),
+            "source": _first_str(payload.get("source")) or "runtime",
+            "source_ref": _first_str(payload.get("source_ref")) or "unknown",
+            "user_input": _required_str(payload, "user_input"),
+            "task_type": _first_str(payload.get("task_type")) or "unknown",
+            "council_mode": _first_str(payload.get("council_mode")),
+            "mode_reason": _first_str(payload.get("mode_reason")),
+            "model_profile_id": _first_str(payload.get("model_profile_id")),
+            "model_owner_user_id": _first_str(payload.get("model_owner_user_id")),
+            "model_guild_id": _first_str(payload.get("model_guild_id")),
+            "model_tenant_id": _first_str(payload.get("model_tenant_id")),
+            "embedding_profile_id": _first_str(payload.get("embedding_profile_id")),
+        }
+
     header = _dict_value(payload.get("header"))
     event = _dict_value(payload.get("event"))
     message = _dict_value(event.get("message"))

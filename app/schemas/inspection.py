@@ -24,6 +24,10 @@ class AgentRunSummary(BaseModel):
     node_name: str
     agent_name: str
     council_mode: str | None = None
+    model_profile_id: UUID | None = None
+    model_provider: str | None = None
+    model_name: str | None = None
+    model_owner_user_id: str | None = None
     status: str
     input_summary: str | None = None
     output_summary: str | None = None
@@ -64,6 +68,10 @@ class AgentRunInspectionResponse(BaseModel):
     node_name: str
     agent_name: str
     council_mode: str | None = None
+    model_profile_id: UUID | None = None
+    model_provider: str | None = None
+    model_name: str | None = None
+    model_owner_user_id: str | None = None
     status: str
     context_pack_ref: str
     input_summary: str | None = None

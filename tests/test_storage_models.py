@@ -1,12 +1,14 @@
 from sqlalchemy import CheckConstraint, Index, UniqueConstraint
 
 from app.storage.models import (
+    AgentRun,
     Base,
     FeishuEventLog,
     FeishuOutbox,
     GraphThread,
     MemoryEmbedding,
     MemoryItem,
+    UserModelProfile,
 )
 
 
@@ -23,6 +25,7 @@ def test_critical_tables_exist() -> None:
         "memory_items",
         "memory_embeddings",
         "memory_retrieval_audits",
+        "user_model_profiles",
     }
 
     assert expected.issubset(Base.metadata.tables)
@@ -105,3 +108,49 @@ def test_memory_embedding_has_hash_and_vector_index() -> None:
         and index.name == "idx_memory_embeddings_vector_hnsw"
         for index in table.indexes
     )
+
+
+def test_user_model_profiles_store_encrypted_byok_metadata() -> None:
+    table = UserModelProfile.__table__
+    unique_names = {
+        constraint.name
+        for constraint in table.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+    index_names = {index.name for index in table.indexes}
+    constraints = {
+        constraint.name: str(constraint.sqltext)
+        for constraint in table.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+
+    for column in [
+        "tenant_id",
+        "guild_id",
+        "user_id",
+        "provider",
+        "model_name",
+        "display_name",
+        "encrypted_api_key",
+        "usage",
+        "is_default",
+        "last_test_status",
+    ]:
+        assert column in table.columns
+    assert "uq_user_model_profile_display_name" in unique_names
+    assert "idx_user_model_profiles_owner" in index_names
+    assert "uq_user_model_profiles_default_usage" in index_names
+    assert "openai" in constraints["ck_user_model_provider"]
+    assert "deepseek" in constraints["ck_user_model_provider"]
+
+
+def test_agent_runs_record_model_profile_metadata() -> None:
+    table = AgentRun.__table__
+    index_names = {index.name for index in table.indexes}
+
+    assert "model_profile_id" in table.columns
+    assert "model_provider" in table.columns
+    assert "model_name" in table.columns
+    assert "model_owner_user_id" in table.columns
+    assert "idx_agent_runs_model_profile" in index_names
+    assert "idx_agent_runs_model_owner_started" in index_names

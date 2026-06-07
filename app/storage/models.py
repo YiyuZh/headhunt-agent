@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -207,6 +208,10 @@ class AgentRun(Base):
     memory_refs = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     artifact_refs = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     source_refs = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    model_profile_id = mapped_column(UUID(as_uuid=True), ForeignKey("user_model_profiles.id"))
+    model_provider = mapped_column(Text)
+    model_name = mapped_column(Text)
+    model_owner_user_id = mapped_column(Text)
     token_estimate = mapped_column(Integer)
     status = mapped_column(Text, nullable=False, server_default=text("'running'"))
     error = mapped_column(Text)
@@ -224,6 +229,53 @@ class AgentRun(Base):
         ),
         Index("idx_agent_runs_thread_started", "thread_id", "started_at"),
         Index("idx_agent_runs_agent_started", "agent_name", "started_at"),
+        Index("idx_agent_runs_model_profile", "model_profile_id"),
+        Index("idx_agent_runs_model_owner_started", "model_owner_user_id", "started_at"),
+    )
+
+
+class UserModelProfile(TimestampMixin, Base):
+    __tablename__ = "user_model_profiles"
+
+    id = uuid_pk()
+    tenant_id = mapped_column(Text)
+    guild_id = mapped_column(Text, nullable=False)
+    user_id = mapped_column(Text, nullable=False)
+    provider = mapped_column(Text, nullable=False)
+    model_name = mapped_column(Text, nullable=False)
+    display_name = mapped_column(Text, nullable=False)
+    encrypted_api_key = mapped_column(Text)
+    base_url = mapped_column(Text)
+    usage = mapped_column(Text, nullable=False, server_default=text("'chat'"))
+    status = mapped_column(Text, nullable=False, server_default=text("'active'"))
+    is_default = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    last_test_status = mapped_column(Text, nullable=False, server_default=text("'untested'"))
+    last_used_at = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "guild_id",
+            "user_id",
+            "display_name",
+            name="uq_user_model_profile_display_name",
+        ),
+        CheckConstraint("provider IN ('openai','deepseek')", name="ck_user_model_provider"),
+        CheckConstraint("usage IN ('chat','embedding')", name="ck_user_model_usage"),
+        CheckConstraint("status IN ('active','revoked')", name="ck_user_model_status"),
+        CheckConstraint(
+            "last_test_status IN ('untested','ok','failed')",
+            name="ck_user_model_last_test_status",
+        ),
+        Index("idx_user_model_profiles_owner", "guild_id", "user_id", "status"),
+        Index("idx_user_model_profiles_usage", "guild_id", "user_id", "usage", "status"),
+        Index(
+            "uq_user_model_profiles_default_usage",
+            "guild_id",
+            "user_id",
+            "usage",
+            unique=True,
+            postgresql_where=text("is_default = true AND status = 'active'"),
+        ),
     )
 
 

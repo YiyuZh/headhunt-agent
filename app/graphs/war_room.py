@@ -21,6 +21,11 @@ class RecruitmentState(TypedDict, total=False):
     task_type: str
     user_input: str
     feishu_context: dict[str, Any]
+    model_profile_id: str
+    model_owner_user_id: str
+    model_guild_id: str
+    model_tenant_id: str
+    embedding_profile_id: str
     council_mode: str
     mode_reason: str
     council_decision: dict[str, Any]
@@ -829,6 +834,11 @@ def _agent_task_from_state(
         feishu_chat_id=feishu_context.get("chat_id") if isinstance(feishu_context, dict) else None,
         artifact_refs=artifact_refs,
         source_refs=[],
+        model_profile_id=_optional_uuid(state.get("model_profile_id")),
+        model_owner_user_id=_optional_str(state.get("model_owner_user_id")),
+        model_guild_id=_optional_str(state.get("model_guild_id")),
+        model_tenant_id=_optional_str(state.get("model_tenant_id")),
+        embedding_profile_id=_optional_uuid(state.get("embedding_profile_id")),
         policy=_default_agent_policy(agent_name, output_artifact_type),
     )
 
@@ -866,3 +876,13 @@ def _artifact_refs_from_state(artifacts: list[dict[str, Any]]) -> list[ArtifactR
         except ValueError:
             continue
     return refs
+
+
+def _optional_uuid(value: Any) -> UUID | None:
+    if value is None or value == "":
+        return None
+    return UUID(str(value))
+
+
+def _optional_str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None

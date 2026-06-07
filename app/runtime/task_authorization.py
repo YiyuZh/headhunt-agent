@@ -2,7 +2,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from typing import Literal
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
@@ -58,6 +58,7 @@ class TaskAuthorizationService:
                 source_ref=source_ref,
                 idempotency_key=None,
                 outbox_payload_ref=None,
+                model_profile_id=request.model_profile_id,
                 next_actions=["任务未授权，未创建 graph_dispatch outbox。"],
             )
 
@@ -100,6 +101,7 @@ class TaskAuthorizationService:
             source_ref=source_ref,
             idempotency_key=idempotency_key,
             outbox_payload_ref=outbox_payload_ref,
+            model_profile_id=request.model_profile_id,
             next_actions=[
                 "已写入 durable graph_dispatch outbox。",
                 "启动 lietou-outbox-worker 后会异步进入 headhunter_war_room_graph。",
@@ -164,6 +166,7 @@ class TaskAuthorizationService:
         source_ref: str,
         idempotency_key: str | None,
         outbox_payload_ref: str | None,
+        model_profile_id: UUID | None,
         next_actions: list[str],
     ) -> TaskAuthorizeResponse:
         return TaskAuthorizeResponse(
@@ -177,6 +180,7 @@ class TaskAuthorizationService:
             required_agents=task_plan.required_agents,
             optional_agents=task_plan.optional_agents,
             user_forced_full_council=task_plan.user_forced_full_council,
+            model_profile_id=model_profile_id,
             idempotency_key=idempotency_key,
             outbox_payload_ref=outbox_payload_ref,
             next_actions=next_actions,
@@ -201,6 +205,13 @@ def _build_graph_dispatch_payload(
         "required_agents": task_plan.required_agents,
         "optional_agents": task_plan.optional_agents,
         "user_forced_full_council": task_plan.user_forced_full_council,
+        "model_profile_id": str(request.model_profile_id) if request.model_profile_id else None,
+        "model_owner_user_id": request.model_owner_user_id,
+        "model_guild_id": request.model_guild_id,
+        "model_tenant_id": request.model_tenant_id,
+        "embedding_profile_id": (
+            str(request.embedding_profile_id) if request.embedding_profile_id else None
+        ),
         "authorization": {
             "status": "authorized",
             "approver": request.approver,

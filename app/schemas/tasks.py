@@ -11,6 +11,11 @@ class TaskAuthorizeRequest(BaseModel):
     source: str = Field(default="api", min_length=1)
     source_ref: str | None = None
     thread_id: UUID | None = None
+    model_profile_id: UUID | None = None
+    model_owner_user_id: str | None = None
+    model_guild_id: str | None = None
+    model_tenant_id: str | None = None
+    embedding_profile_id: UUID | None = None
     approved: bool = False
     approver: dict[str, Any] = Field(default_factory=dict)
 
@@ -26,6 +31,7 @@ class TaskAuthorizeResponse(BaseModel):
     required_agents: list[str]
     optional_agents: list[str] = Field(default_factory=list)
     user_forced_full_council: bool = False
+    model_profile_id: UUID | None = None
     idempotency_key: str | None = None
     outbox_payload_ref: str | None = None
     next_actions: list[str] = Field(default_factory=list)

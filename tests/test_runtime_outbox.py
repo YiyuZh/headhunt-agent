@@ -62,6 +62,29 @@ def test_feishu_payload_to_initial_state_extracts_text_without_full_payload() ->
     assert "payload" not in state
 
 
+def test_graph_dispatch_payload_to_initial_state_preserves_model_profile_context() -> None:
+    payload = {
+        "thread_id": "2c035461-6b47-4b92-a982-7b7eac099c36",
+        "source": "discord",
+        "source_ref": "interaction-1",
+        "user_input": "请校准岗位需求",
+        "task_type": "requisition_calibration",
+        "model_profile_id": "4c035461-6b47-4b92-a982-7b7eac099c36",
+        "model_owner_user_id": "discord-user-1",
+        "model_guild_id": "discord-guild-1",
+        "model_tenant_id": "tenant-1",
+    }
+
+    state = feishu_payload_to_initial_state(payload)
+
+    assert state["source"] == "discord"
+    assert state["thread_id"] == payload["thread_id"]
+    assert state["user_input"] == "请校准岗位需求"
+    assert state["model_profile_id"] == payload["model_profile_id"]
+    assert state["model_owner_user_id"] == "discord-user-1"
+    assert state["model_guild_id"] == "discord-guild-1"
+
+
 def test_langgraph_outbox_handler_dispatches_to_real_graph_invoke() -> None:
     graph = FakeGraph()
     handler = LangGraphOutboxHandler(

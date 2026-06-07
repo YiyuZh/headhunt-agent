@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+from app.gateways.llm import LLMModelInfo
 from app.harness.agent_harness import AgentHarness
 from app.schemas.agent import AgentPolicy, AgentTask
 from app.schemas.common import CouncilMode, MemoryScope
@@ -49,6 +50,14 @@ class FakeLLMGateway:
     def __init__(self):
         self.calls = []
 
+    def model_info(self, **kwargs):
+        return LLMModelInfo(
+            model_profile_id=kwargs.get("model_profile_id"),
+            model_provider="deepseek",
+            model_name="deepseek-v4-pro",
+            model_owner_user_id=kwargs.get("model_owner_user_id"),
+        )
+
     def generate_structured(self, **kwargs):
         self.calls.append(kwargs)
         return {
@@ -81,6 +90,7 @@ class FakeWarRoomNotifier:
 
 
 def make_task() -> AgentTask:
+    model_profile_id = uuid4()
     return AgentTask(
         thread_id=uuid4(),
         node_name="intake_calibration_graph",
@@ -92,6 +102,10 @@ def make_task() -> AgentTask:
         output_artifact_type="RequisitionCalibrationDraft",
         task_type="requisition_calibration",
         feishu_chat_id="oc_1",
+        model_profile_id=model_profile_id,
+        model_owner_user_id="discord-user-1",
+        model_guild_id="discord-guild-1",
+        model_tenant_id="tenant-1",
         policy=AgentPolicy(
             agent_name="StrategyDraftAgent",
             allowed_artifact_types_write=["RequisitionCalibrationDraft"],
@@ -126,6 +140,8 @@ def test_agent_harness_builds_minimal_context_and_persists_run_outputs() -> None
     assert memory.proposed[0][1].scope == MemoryScope.run
     assert memory.proposed[0][1].thread_id == task.thread_id
     context_pack = llm.calls[0]["context_pack"]
+    assert llm.calls[0]["model_profile_id"] == task.model_profile_id
+    assert llm.calls[0]["model_owner_user_id"] == "discord-user-1"
     assert context_pack.agent_name == "StrategyDraftAgent"
     assert context_pack.memory_refs == [memory.memory_ref]
     assert not hasattr(context_pack, "recruitment_state")
@@ -133,6 +149,10 @@ def test_agent_harness_builds_minimal_context_and_persists_run_outputs() -> None
     assert artifact_store.writes[0][0].run_id == result.run_id
     assert artifact_store.writes[0][2] == {"plan": ["校准岗位", "生成目标公司"]}
     assert session.added[0].status == "succeeded"
+    assert session.added[0].model_profile_id == task.model_profile_id
+    assert session.added[0].model_provider == "deepseek"
+    assert session.added[0].model_name == "deepseek-v4-pro"
+    assert session.added[0].model_owner_user_id == "discord-user-1"
     assert war_room.agent_cards[0]["chat_id"] == "oc_1"
     assert war_room.agent_cards[0]["output"].summary == "策略草稿已生成"
 

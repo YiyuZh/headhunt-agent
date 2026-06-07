@@ -2,6 +2,7 @@ import json
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from app.core.config import Settings
 from app.runtime import external_smoke
@@ -45,6 +46,8 @@ class OpenAIFakeClient:
             return FakeResponse({"data": [{"index": 0, "embedding": [0.1, 0.2]}]})
         if url.endswith("/v1/responses"):
             return FakeResponse({"output_text": "{\"ok\": true}"})
+        if url.endswith("/chat/completions"):
+            return FakeResponse({"choices": [{"message": {"content": "{\"ok\": true}"}}]})
         raise AssertionError(f"Unexpected OpenAI URL: {url}")
 
 
@@ -62,6 +65,7 @@ def complete_settings() -> Settings:
     return Settings(
         embedding_provider="openai",
         embedding_model="text-embedding-3-small",
+        embedding_api_key="sk-embedding",
         llm_provider="openai_responses",
         llm_model="gpt-4.1-mini",
         llm_api_key="sk-test",
@@ -102,6 +106,23 @@ def test_external_smoke_passes_with_fake_feishu_and_openai() -> None:
     ]
     assert len(bitable_requests) == 4
     assert len(openai_client.posts) == 2
+
+
+def test_external_smoke_can_include_deepseek_when_key_is_configured() -> None:
+    openai_client = OpenAIFakeClient()
+    settings = complete_settings()
+    settings.deepseek_api_key = SecretStr("sk-deepseek")
+
+    report = run_external_smoke_check(
+        settings=settings,
+        include_feishu=False,
+        include_openai=False,
+        include_deepseek=True,
+        openai_client=openai_client,
+    )
+
+    assert any(check.name == "deepseek_llm" and check.status == "ok" for check in report.checks)
+    assert any(url.endswith("/chat/completions") for url, _headers, _json in openai_client.posts)
 
 
 def test_external_smoke_fails_when_required_config_is_missing() -> None:

@@ -4,18 +4,20 @@
 
 本文是 Agent、Graph、ContextPack 和记忆注入的工程施工文档。当前已有 ContextPack
 schema、ContextPackBuilder typed snapshot、ArtifactStore repository、MemoryGateway /
-pgvector 检索、LangGraph 根图 / council 子图 / 业务子图、AgentHarness、OpenAI
-Responses LLMGateway、OpenAI EmbeddingGateway、AgentRuns 写入、RunMemory 写入和
+pgvector 检索、LangGraph 根图 / council 子图 / 业务子图、AgentHarness、Discord optional BYOK
+用户模型 profile、OpenAI/DeepSeek LLMGateway、OpenAI EmbeddingGateway、AgentRuns 写入、RunMemory 写入和
 War Room 卡片 outbox、ActionGate、真实 LangGraph `interrupt()` / resume 和审批后
-`bitable_write` outbox 排队。PRD 已切换为 Discord First；Discord interaction、
+`bitable_write` outbox 排队。PRD 已切换为 Feishu First；飞书事件/卡片、
 TaskIntakeParser double check、ReviewGate、AgentSOPRegistry 和 memory retention job 尚未实现。
-真实 PostgreSQL 服务、真实 PostgreSQL checkpointer、真实 Discord 联调和真实飞书联调仍待验证。
+Discord BYOK chat profile 作为 optional adapter 历史能力保留；飞书 BYOK 卡片仍需实现。embedding profile 已作为可选 MemoryGateway
+路由输入，无用户 embedding profile 时记忆向量化/检索会 skipped 并审计，不阻断普通 chat agent。
+真实 PostgreSQL 服务、真实 PostgreSQL checkpointer、真实飞书联调和真实 OpenAI/DeepSeek 调用仍待验证。
 
 ## 运行图
 
 ```mermaid
 flowchart TD
-    Z["Discord/API task intake"] --> Y["TaskIntakeParser"]
+    Z["Feishu/API task intake"] --> Y["TaskIntakeParser"]
     Y --> X["CanonicalTaskBrief"]
     X --> W["User Double Check"]
     W --> A["headhunter_war_room_graph"]
@@ -231,6 +233,7 @@ candidate_id
   "can_read_memory_content": false,
   "pii_access_level": "medium",
   "allowed_side_effects": ["audit_write", "run_memory_write"],
+  "model_profile_id": "可选，由 Discord 用户选择后写入 AgentTask",
   "requires_interrupt_for": ["recommendation_commit", "business_write", "outreach_send"]
 }
 ```
@@ -247,10 +250,10 @@ AgentHarness 是所有 Agent 执行入口。
 5. 调用 AgentSOPRegistry 检索必要 SOPRef。
 6. 裁剪 source refs 和 optional sop_refs。
 7. 生成 ContextPack。
-8. 调用 LLMGateway。
+8. 根据 `AgentTask.model_profile_id + model_owner_user_id + model_guild_id` 解析用户 BYOK profile，并调用 LLMGateway。
 9. 校验结构化输出。
 10. 通过 ReviewGate 审查关键产物。
-11. 写 AgentRuns、ArtifactStore、RunMemory 和检索审计。
+11. 写 AgentRuns、模型 profile 审计摘要、ArtifactStore、RunMemory 和检索审计。
 
 硬限制：
 - `ContextPackBuilder` 的输入只能是 typed selector 或 allowed snapshot，例如 `IntentSnapshot`、`RequisitionSnapshot`、`ArtifactRefList`、`MemoryQuerySpec`，不能传入 raw `RecruitmentState`、raw messages、raw `node_history` 或完整 AgentRuns。
@@ -359,18 +362,20 @@ repair_node_for_this_artifact -> review_gate_for_artifact
 - 公司背调、当前在职状态、融资、新闻、裁员和组织变化等当前事实必须来自 `SearchGateway.source_refs`。
 - 长期记忆不得替代实时搜索，只能提供历史经验、taxonomy、项目规则、用户修正和 SOP。
 - 简历关键词抽取以当前简历/JD artifact 为主，长期记忆只能辅助标准化技能 taxonomy、title 变体和用户修正规则。
+- ContextPack、AgentRun、War Room 卡片不得包含 API Key、加密后的 API Key 或 provider secret；只允许展示 `model_profile_id / provider / model_name` 摘要。
+- 没有用户 embedding profile 或本地 embedding fallback 时，MemoryGateway 向量检索和 RunMemory 向量化必须降级为 skipped，不得借用其他用户 key。
 
 ## Token 消耗控制
 
 - 默认为 `lite` 或 `standard`，只有必要时进入 `full_council`。
 - ContextPack 要记录估算 token。
 - 每个 Agent 的 `max_context_tokens` 独立配置。
-- Discord War Room 只展示 memory_refs / sop_refs 命中原因和 token 估算，不展示原始 prompt。
+- 飞书 War Room 只展示 memory_refs / sop_refs 命中原因和 token 估算，不展示原始 prompt。
 - 对同一 task_brief 和 policy 的 MemoryGateway 检索可以短期缓存，但 cache key 必须包含 policy version、agent_name、allowed scopes、PII 级别、memory index version 和 active memory watermark；记忆撤销、过期、审批状态变化或 policy 降权后必须失效。
 
 ## 未验证事项
 
-- 第一版默认 LLM / embedding 已配置为 OpenAI Responses / OpenAI embeddings 接口；
-  真实模型调用未验证，因为当前未提供真实 API Key。
+- 第一版业务 LLM 目标由飞书用户 BYOK profile 选择；OpenAI / DeepSeek 真实模型调用未验证，因为当前未提供真实用户 API Key。
+- embedding profile 与 chat profile 分离；无 embedding profile 时记忆向量化降级跳过。
 - token 估算器、rerank 算法和 MMR 参数尚未实测。
 - Agent allowlist 已有单测覆盖最小 ContextPack 注入；真实生产数据联调仍未验证。
