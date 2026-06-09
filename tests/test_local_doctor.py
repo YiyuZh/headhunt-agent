@@ -148,6 +148,7 @@ def test_local_doctor_marks_placeholders_and_blank_feishu_values(tmp_path: Path)
         "MODEL_SECRET_ENCRYPTION_KEY",
     ]
     assert report["env"]["feishu_required"]["placeholder"] == ["FEISHU_APP_SECRET"]
+    assert report["env"]["bitable_sync_optional"]["missing"] == []
 
 
 def test_local_doctor_tells_user_to_fill_feishu_before_strict_when_only_feishu_blocks(
@@ -182,8 +183,53 @@ def test_local_doctor_tells_user_to_fill_feishu_before_strict_when_only_feishu_b
     assert report["status"] == "not_ready"
     assert report["next_steps"][0].startswith("Before running strict preflight again")
     assert "飞书接入操作手册.md" in report["next_steps"][0]
+    assert "required Feishu values" in report["next_steps"][0]
     assert report["next_steps"][1] == "Run `python -m app.runtime.local_doctor --strict` again."
     assert report["next_steps"][2] == "After `status` is `ok`, run `docker compose up -d --build`."
+
+
+def test_local_doctor_does_not_block_first_stage_when_bitable_is_blank(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "INTERNAL_ADMIN_API_KEY=admin-key",
+                "POSTGRES_PASSWORD=db-password",
+                "MODEL_SECRET_ENCRYPTION_KEY=model-key",
+                "FEISHU_APP_ID=cli_test",
+                "FEISHU_APP_SECRET=app-secret",
+                "FEISHU_VERIFICATION_TOKEN=verify-token",
+                "FEISHU_ENCRYPT_KEY=encrypt-key",
+                "FEISHU_DEFAULT_CHAT_ID=oc_test",
+                "FEISHU_BITABLE_APP_TOKEN=",
+                "FEISHU_BITABLE_REQUISITION_TABLE_ID=",
+                "FEISHU_BITABLE_CANDIDATE_TABLE_ID=",
+                "FEISHU_BITABLE_TALENT_MAP_TABLE_ID=",
+                "FEISHU_BITABLE_REPORT_TABLE_ID=",
+                "EMBEDDING_API_KEY=",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = local_doctor.build_local_doctor_report(
+        repo_root=tmp_path,
+        docker_runner=_successful_docker_runner,
+        which=lambda command: "C:\\Docker\\docker.exe" if command == "docker" else None,
+    )
+
+    assert report["status"] == "ok"
+    assert report["blocking_issues"] == []
+    assert report["env"]["feishu_required"]["placeholder"] == []
+    assert report["env"]["bitable_sync_optional"]["placeholder"] == [
+        "FEISHU_BITABLE_APP_TOKEN",
+        "FEISHU_BITABLE_REQUISITION_TABLE_ID",
+        "FEISHU_BITABLE_CANDIDATE_TABLE_ID",
+        "FEISHU_BITABLE_TALENT_MAP_TABLE_ID",
+        "FEISHU_BITABLE_REPORT_TABLE_ID",
+    ]
+    assert any("Optional Bitable business sync is not ready" in item for item in report["warnings"])
 
 
 def test_local_doctor_ok_when_required_values_and_docker_are_available(tmp_path: Path) -> None:

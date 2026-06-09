@@ -200,10 +200,10 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
             message_ok="Feishu OpenAPI credentials are configured.",
             message_missing=(
                 "Set FEISHU_APP_ID and FEISHU_APP_SECRET before enabling the first-version "
-                "Feishu event, card, War Room, and Bitable runtime."
+                "Feishu event, card, and War Room runtime."
             ),
             env_vars=["FEISHU_APP_ID", "FEISHU_APP_SECRET"],
-            required_for=["card_send", "card_update", "bitable_write"],
+            required_for=["card_send", "card_update"],
         ),
         _check(
             name="feishu_callbacks",
@@ -231,7 +231,7 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
         ),
         _check(
             name="feishu_bitable",
-            category="feishu",
+            category="bitable",
             ok=all(
                 _present(value)
                 for value in [
@@ -245,7 +245,8 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
             message_ok="Feishu Bitable app_token and table IDs are configured.",
             message_missing=(
                 "Set FEISHU_BITABLE_APP_TOKEN and FEISHU_BITABLE_*_TABLE_ID values before "
-                "approved business writes can sync to Bitable."
+                "approved business writes can sync to Bitable. This does not block first-stage "
+                "Feishu events, card callbacks, or War Room messages."
             ),
             env_vars=[
                 "FEISHU_BITABLE_APP_TOKEN",
@@ -255,6 +256,7 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
                 "FEISHU_BITABLE_REPORT_TABLE_ID",
             ],
             required_for=["bitable_write"],
+            required=False,
         ),
         _check(
             name="feishu_task_flow_implementation",

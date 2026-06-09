@@ -111,3 +111,37 @@ def test_config_check_strict_passes_when_required_runtime_is_configured(
         and detail["status"] == "ok"
         for detail in payload["details"]
     )
+
+
+def test_config_check_strict_does_not_block_first_stage_when_bitable_is_missing(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(
+        config_check,
+        "get_settings",
+        lambda: Settings(
+            internal_admin_api_key="admin-secret",
+            model_secret_encryption_key="model-secret",
+            embedding_provider="openai",
+            embedding_model="text-embedding-3-small",
+            embedding_api_key="embedding-secret",
+            feishu_app_id="cli_app",
+            feishu_app_secret="feishu-secret",
+            feishu_verification_token="verify-secret",
+            feishu_encrypt_key="encrypt-secret",
+            feishu_default_chat_id="oc_test",
+        ),
+    )
+
+    config_check.main(["--strict"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "degraded"
+    assert payload["missing_required"] == []
+    assert any(
+        detail["name"] == "feishu_bitable"
+        and detail["status"] == "warning"
+        and detail["category"] == "bitable"
+        for detail in payload["details"]
+    )

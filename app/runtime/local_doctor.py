@@ -23,6 +23,9 @@ FEISHU_REQUIRED_ENV = [
     "FEISHU_VERIFICATION_TOKEN",
     "FEISHU_ENCRYPT_KEY",
     "FEISHU_DEFAULT_CHAT_ID",
+]
+
+FEISHU_BITABLE_SYNC_ENV = [
     "FEISHU_BITABLE_APP_TOKEN",
     "FEISHU_BITABLE_REQUISITION_TABLE_ID",
     "FEISHU_BITABLE_CANDIDATE_TABLE_ID",
@@ -90,7 +93,7 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help=(
             "Replace local runtime placeholders in .env with strong random values. "
-            "Feishu, Bitable, model, and embedding credentials are never generated."
+            "Feishu app, Bitable, model, and embedding credentials are never generated."
         ),
     )
     parser.add_argument(
@@ -286,6 +289,7 @@ def _build_env_report(
 ) -> dict[str, Any]:
     runtime_missing, runtime_placeholder = _classify_env(env_values, RUNTIME_REQUIRED_ENV)
     feishu_missing, feishu_placeholder = _classify_env(env_values, FEISHU_REQUIRED_ENV)
+    bitable_missing, bitable_placeholder = _classify_env(env_values, FEISHU_BITABLE_SYNC_ENV)
     recommended_missing, recommended_placeholder = _classify_env(env_values, RECOMMENDED_ENV)
     return {
         "path": str(env_file),
@@ -300,6 +304,10 @@ def _build_env_report(
         "feishu_required": {
             "missing": feishu_missing,
             "placeholder": feishu_placeholder,
+        },
+        "bitable_sync_optional": {
+            "missing": bitable_missing,
+            "placeholder": bitable_placeholder,
         },
         "recommended": {
             "missing": recommended_missing,
@@ -361,6 +369,13 @@ def _warning_issues(env_report: dict[str, Any], docker_report: dict[str, Any]) -
             "Optional memory vectorization is not ready: "
             + ", ".join(sorted(set(recommended_unset)))
         )
+    bitable = env_report["bitable_sync_optional"]
+    bitable_unset = [*bitable["missing"], *bitable["placeholder"]]
+    if bitable_unset:
+        warnings.append(
+            "Optional Bitable business sync is not ready: "
+            + ", ".join(sorted(set(bitable_unset)))
+        )
     if docker_report.get("error") and docker_report.get("installed"):
         warnings.append(f"Docker Compose probe returned: {docker_report['error']}")
     return warnings
@@ -393,7 +408,7 @@ def _next_steps(*, blocking: list[str], warnings: list[str]) -> list[str]:
     if _has_blocking_prefix(blocking, "feishu_required"):
         steps.append(
             "Before running strict preflight again, edit `.env` and fill the "
-            "Feishu/Bitable values listed in `docs/manual/飞书接入操作手册.md` "
+            "required Feishu values listed in `docs/manual/飞书接入操作手册.md` "
             "section `获取 .env 里的飞书 ID`."
         )
     if any("Docker" in issue or "docker compose" in issue for issue in blocking):
