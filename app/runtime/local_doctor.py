@@ -368,7 +368,7 @@ def _warning_issues(env_report: dict[str, Any], docker_report: dict[str, Any]) -
 
 def _next_steps(*, blocking: list[str], warnings: list[str]) -> list[str]:
     preflight_command = _oneclick_preflight_command()
-    start_command = _oneclick_start_command()
+    start_command = "docker compose up -d --build"
     if not blocking:
         steps = [
             f"Run `{start_command}`.",
@@ -381,18 +381,37 @@ def _next_steps(*, blocking: list[str], warnings: list[str]) -> list[str]:
         if warnings:
             steps.append("Address warnings before relying on long-term memory retrieval.")
         return steps
-    return [
-        (
+
+    steps: list[str] = []
+    if _has_blocking_prefix(blocking, "Create .env") or _has_blocking_prefix(
+        blocking, "runtime_required"
+    ):
+        steps.append(
             f"Run `{preflight_command}` from the repo root to initialize .env "
             "and generate local runtime secrets."
-        ),
-        "Edit .env and fill the Feishu/Bitable/model values listed above.",
-        (
+        )
+    if _has_blocking_prefix(blocking, "feishu_required"):
+        steps.append(
+            "Before running strict preflight again, edit `.env` and fill the "
+            "Feishu/Bitable values listed in `docs/manual/飞书接入操作手册.md` "
+            "section `获取 .env 里的飞书 ID`."
+        )
+    if any("Docker" in issue or "docker compose" in issue for issue in blocking):
+        steps.append(
             "Install Docker Engine/Compose or Docker Desktop and confirm "
             "`docker compose version` works."
-        ),
-        f"Run `{start_command}` after .env and Docker are ready.",
-    ]
+        )
+    steps.extend(
+        [
+            "Run `python -m app.runtime.local_doctor --strict` again.",
+            f"After `status` is `ok`, run `{start_command}`.",
+        ]
+    )
+    return steps
+
+
+def _has_blocking_prefix(blocking: list[str], prefix: str) -> bool:
+    return any(issue.startswith(prefix) for issue in blocking)
 
 
 def _commands() -> dict[str, str]:
@@ -407,7 +426,7 @@ def _commands() -> dict[str, str]:
         "oneclick_start_posix": POSIX_ONECLICK_START_COMMAND,
         "doctor": "lietou-local-doctor --strict",
         "doctor_module": "python -m app.runtime.local_doctor --strict",
-        "start": start_command,
+        "start": "docker compose up -d --build",
         "docker_compose_start": "docker compose up -d --build",
         "readiness": "docker compose exec api lietou-config-check --strict",
         "worker_once": "docker compose exec worker lietou-outbox-worker --once",
