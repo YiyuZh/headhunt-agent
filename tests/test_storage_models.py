@@ -1,6 +1,8 @@
 from sqlalchemy import CheckConstraint, Index, UniqueConstraint
 
 from app.storage.models import (
+    ActionProposal,
+    AgentArtifact,
     AgentRun,
     Base,
     FeishuEventLog,
@@ -154,3 +156,12 @@ def test_agent_runs_record_model_profile_metadata() -> None:
     assert "model_owner_user_id" in table.columns
     assert "idx_agent_runs_model_profile" in index_names
     assert "idx_agent_runs_model_owner_started" in index_names
+
+
+def test_inspection_and_approval_query_path_indexes_exist() -> None:
+    artifact_indexes = {index.name for index in AgentArtifact.__table__.indexes}
+    action_indexes = {index.name for index in ActionProposal.__table__.indexes}
+
+    assert "idx_artifacts_thread_created" in artifact_indexes
+    assert "idx_action_proposals_interrupt_created" in action_indexes
+    assert "idx_action_proposals_thread_status_created" in action_indexes

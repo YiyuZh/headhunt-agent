@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from app.core.config import Settings, get_settings
 from app.graphs.war_room import build_headhunter_war_room_graph
 from app.policy.engine import PolicyEngine
+from app.runtime.review_gate import ReviewGate
 
 
 class RuntimeGraphFactory:
@@ -14,12 +15,14 @@ class RuntimeGraphFactory:
         agent_harness=None,
         action_gate=None,
         action_executor=None,
+        review_gate: ReviewGate | None = None,
     ):
         self.settings = settings or get_settings()
         self.policy_engine = policy_engine or PolicyEngine()
         self.agent_harness = agent_harness
         self.action_gate = action_gate
         self.action_executor = action_executor
+        self.review_gate = review_gate or ReviewGate()
 
     def create_headhunter_war_room_graph(self, *, checkpointer=None):
         return build_headhunter_war_room_graph(
@@ -27,6 +30,7 @@ class RuntimeGraphFactory:
             agent_harness=self.agent_harness,
             action_gate=self.action_gate,
             action_executor=self.action_executor,
+            review_gate=self.review_gate,
             checkpointer=checkpointer,
         )
 

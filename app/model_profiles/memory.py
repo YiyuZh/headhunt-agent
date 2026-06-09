@@ -25,7 +25,7 @@ class UserModelMemoryGatewayRouter:
         if not task.model_guild_id or not task.model_owner_user_id:
             return DisabledMemoryGateway(
                 session=self.session,
-                reason="embedding_runtime_disabled:missing_discord_model_scope",
+                reason="embedding_runtime_disabled:missing_model_profile_scope",
             )
         if self.settings.model_secret_encryption_key is None:
             return DisabledMemoryGateway(

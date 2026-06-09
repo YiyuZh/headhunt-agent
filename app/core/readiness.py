@@ -7,6 +7,8 @@ from pydantic import SecretStr
 from app.core.config import Settings
 from app.schemas.system import ReadinessCheck
 
+OPTIONAL_WARNING_CATEGORIES = {"discord", "local_debug"}
+
 
 @dataclass(frozen=True)
 class ReadinessReport:
@@ -19,6 +21,18 @@ class ReadinessReport:
 
 def build_readiness_report(settings: Settings) -> ReadinessReport:
     details = [
+        _check(
+            name="channel_gateway_provider",
+            category="channel",
+            ok=(settings.channel_gateway_provider or "").lower() == "feishu",
+            message_ok="CHANNEL_GATEWAY_PROVIDER is feishu for the first-version channel.",
+            message_missing=(
+                "Set CHANNEL_GATEWAY_PROVIDER=feishu. Discord is retained only as an "
+                "optional adapter."
+            ),
+            env_vars=["CHANNEL_GATEWAY_PROVIDER"],
+            required_for=["feishu_events", "feishu_war_room", "bitable_write"],
+        ),
         _check(
             name="database_url",
             category="postgres",
@@ -83,25 +97,25 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
             name="user_model_profiles",
             category="agent",
             ok=_present(settings.model_secret_encryption_key),
-            message_ok="Discord BYOK user model profiles are enabled.",
+            message_ok="User BYOK model profiles are enabled.",
             message_missing=(
-                "Set MODEL_SECRET_ENCRYPTION_KEY before Discord users can save encrypted "
+                "Set MODEL_SECRET_ENCRYPTION_KEY before channel users can save encrypted "
                 "OpenAI/DeepSeek model profiles. LLM_PROVIDER/LLM_API_KEY are only a local "
-                "debug fallback, not the multi-user Discord main path."
+                "debug fallback, not the multi-user Feishu main path."
             ),
             env_vars=["MODEL_SECRET_ENCRYPTION_KEY"],
             required_for=["agent_harness", "graph_dispatch"],
         ),
         _check(
             name="legacy_llm_runtime",
-            category="agent",
+            category="local_debug",
             ok=(settings.llm_provider or "").lower() in {"openai", "openai_responses"}
             and _present(settings.llm_model)
             and _present(settings.llm_api_key),
             message_ok="Legacy local OpenAI LLM fallback is configured.",
             message_missing=(
                 "Legacy LLM_PROVIDER/LLM_MODEL/LLM_API_KEY fallback is not configured. "
-                "This is acceptable for Discord BYOK runtime."
+                "This is acceptable when user BYOK model profiles are enabled."
             ),
             env_vars=["LLM_PROVIDER", "LLM_MODEL", "LLM_API_KEY"],
             required_for=["local_debug_fallback"],
@@ -171,54 +185,49 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
             ok=False,
             message_ok="Discord War Room task flow is implemented.",
             message_missing=(
-                "Discord War Room, task double check, ReviewGate, button/modal approval "
-                "and graph end-to-end flow are not implemented or real-world verified yet."
+                "Discord War Room, Discord-specific task double check, button/modal "
+                "approval and graph end-to-end flow are not implemented or real-world "
+                "verified yet; channel-neutral ReviewGate is implemented separately."
             ),
             env_vars=[],
-            required_for=["discord_war_room", "task_double_check", "review_gate"],
+            required_for=["discord_war_room", "discord_task_double_check"],
             required=False,
         ),
         _check(
             name="feishu_openapi",
             category="feishu",
             ok=_present(settings.feishu_app_id) and _present(settings.feishu_app_secret),
-            message_ok="Deferred Feishu OpenAPI adapter credentials are configured.",
+            message_ok="Feishu OpenAPI credentials are configured.",
             message_missing=(
-                "Feishu/Bitable is a deferred adapter, not the first-version main path. "
-                "Set FEISHU_APP_ID and FEISHU_APP_SECRET only when enabling that adapter."
+                "Set FEISHU_APP_ID and FEISHU_APP_SECRET before enabling the first-version "
+                "Feishu event, card, War Room, and Bitable runtime."
             ),
             env_vars=["FEISHU_APP_ID", "FEISHU_APP_SECRET"],
             required_for=["card_send", "card_update", "bitable_write"],
-            required=False,
         ),
         _check(
             name="feishu_callbacks",
             category="feishu",
             ok=_present(settings.feishu_verification_token)
             and _present(settings.feishu_encrypt_key),
-            message_ok=(
-                "Deferred Feishu callback verification token and encrypt key are configured."
-            ),
+            message_ok="Feishu callback verification token and encrypt key are configured.",
             message_missing=(
-                "Feishu callbacks are deferred. Set FEISHU_VERIFICATION_TOKEN and "
-                "FEISHU_ENCRYPT_KEY only when enabling real Feishu event/card callbacks."
+                "Set FEISHU_VERIFICATION_TOKEN and FEISHU_ENCRYPT_KEY before accepting "
+                "real Feishu event/card callbacks."
             ),
             env_vars=["FEISHU_VERIFICATION_TOKEN", "FEISHU_ENCRYPT_KEY"],
             required_for=["feishu_events", "feishu_card_actions"],
-            required=False,
         ),
         _check(
             name="feishu_war_room",
             category="feishu",
             ok=_present(settings.feishu_default_chat_id),
-            message_ok="Deferred Feishu War Room chat_id is configured.",
+            message_ok="Feishu War Room chat_id is configured.",
             message_missing=(
-                "Feishu War Room cards are deferred. Set FEISHU_DEFAULT_CHAT_ID only when "
-                "enabling the Feishu adapter."
+                "Set FEISHU_DEFAULT_CHAT_ID before sending first-version War Room cards."
             ),
             env_vars=["FEISHU_DEFAULT_CHAT_ID"],
             required_for=["war_room_cards"],
-            required=False,
         ),
         _check(
             name="feishu_bitable",
@@ -233,10 +242,10 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
                     settings.feishu_bitable_report_table_id,
                 ]
             ),
-            message_ok="Deferred Feishu Bitable app_token and table IDs are configured.",
+            message_ok="Feishu Bitable app_token and table IDs are configured.",
             message_missing=(
-                "Feishu Bitable is deferred. Set FEISHU_BITABLE_APP_TOKEN and "
-                "FEISHU_BITABLE_*_TABLE_ID values only when enabling that adapter."
+                "Set FEISHU_BITABLE_APP_TOKEN and FEISHU_BITABLE_*_TABLE_ID values before "
+                "approved business writes can sync to Bitable."
             ),
             env_vars=[
                 "FEISHU_BITABLE_APP_TOKEN",
@@ -246,7 +255,72 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
                 "FEISHU_BITABLE_REPORT_TABLE_ID",
             ],
             required_for=["bitable_write"],
+        ),
+        _check(
+            name="feishu_task_flow_implementation",
+            category="feishu",
+            ok=bool(settings.readiness().get("feishu_task_flow_implemented")),
+            message_ok=(
+                "Feishu task intake and double check card dispatch are implemented."
+            ),
+            message_missing=(
+                "Feishu task intake business handling and double check cards are not "
+                "fully implemented or real-world verified yet."
+            ),
+            env_vars=[],
+            required_for=[
+                "task_intake",
+                "task_double_check",
+            ],
             required=False,
+            strict_blocking=True,
+        ),
+        _check(
+            name="feishu_byok_card_implementation",
+            category="feishu",
+            ok=bool(settings.readiness().get("feishu_byok_cards_implemented")),
+            message_ok="Feishu BYOK configuration cards are implemented.",
+            message_missing=(
+                "Feishu BYOK model configuration cards are not fully implemented yet. "
+                "Users without a default model profile receive a setup-required card."
+            ),
+            env_vars=[],
+            required_for=["feishu_byok_cards", "agent_harness"],
+            required=False,
+            strict_blocking=True,
+        ),
+        _check(
+            name="review_gate_implementation",
+            category="agent",
+            ok=bool(settings.readiness().get("review_gate_implemented")),
+            message_ok="ReviewGate runtime is implemented.",
+            message_missing="ReviewGate runtime is not fully implemented yet.",
+            env_vars=[],
+            required_for=["review_gate", "business_side_effects"],
+            required=False,
+            strict_blocking=True,
+        ),
+        _check(
+            name="agent_sop_registry_implementation",
+            category="agent",
+            ok=bool(settings.readiness().get("agent_sop_registry_implemented")),
+            message_ok="AgentSOPRegistry runtime is implemented.",
+            message_missing="AgentSOPRegistry runtime is not fully implemented yet.",
+            env_vars=[],
+            required_for=["agent_sop_registry", "context_pack"],
+            required=False,
+            strict_blocking=True,
+        ),
+        _check(
+            name="memory_retention_implementation",
+            category="memory",
+            ok=bool(settings.readiness().get("memory_retention_implemented")),
+            message_ok="Memory retention job is implemented.",
+            message_missing="Memory retention job is not fully implemented yet.",
+            env_vars=[],
+            required_for=["memory_retention"],
+            required=False,
+            strict_blocking=True,
         ),
         _check(
             name="outbox_worker",
@@ -285,11 +359,16 @@ def _check(
     env_vars: list[str],
     required_for: list[str],
     required: bool = True,
+    strict_blocking: bool = False,
 ) -> ReadinessCheck:
+    if strict_blocking and not ok:
+        status = "error"
+    else:
+        status = "ok" if ok else ("missing" if required else "warning")
     return ReadinessCheck(
         name=name,
         category=category,
-        status="ok" if ok else ("missing" if required else "warning"),
+        status=status,
         message=message_ok if ok else message_missing,
         required_for=required_for,
         env_vars=env_vars,
@@ -310,10 +389,14 @@ def _missing_env_vars(details: Iterable[ReadinessCheck]) -> list[str]:
 
 
 def _status_for(details: Iterable[ReadinessCheck]) -> str:
-    statuses = {detail.status for detail in details}
+    details_list = list(details)
+    statuses = {detail.status for detail in details_list}
     if statuses & {"missing", "error"}:
         return "not_ready"
-    if "warning" in statuses:
+    if any(
+        detail.status == "warning" and detail.category not in OPTIONAL_WARNING_CATEGORIES
+        for detail in details_list
+    ):
         return "degraded"
     return "ok"
 
@@ -322,6 +405,8 @@ def _next_steps(details: Iterable[ReadinessCheck]) -> list[str]:
     steps: list[str] = []
     for detail in details:
         if detail.status == "ok":
+            continue
+        if detail.status == "warning" and detail.category in OPTIONAL_WARNING_CATEGORIES:
             continue
         steps.append(detail.message)
     return steps

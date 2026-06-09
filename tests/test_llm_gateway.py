@@ -96,6 +96,50 @@ def test_openai_responses_gateway_rejects_invalid_json_text() -> None:
         )
 
 
+def test_openai_responses_gateway_rejects_custom_base_url_resolving_private_ip() -> None:
+    client = FakeHttpClient(FakeHttpResponse({"output_text": "{}"}))
+    gateway = OpenAIResponsesLLMGateway(
+        api_key="sk-test",
+        model="gpt-test",
+        base_url="https://models.example.com",
+        client=client,
+        base_url_resolver=lambda hostname: ["10.0.0.5"],
+    )
+
+    with pytest.raises(LLMGatewayError, match="Unsafe OpenAI base_url"):
+        gateway.generate_structured(
+            agent_name="StrategyDraftAgent",
+            context_pack=make_context_pack(),
+            output_schema={"type": "object"},
+            schema_name="agent_output",
+            max_output_tokens=800,
+        )
+
+    assert client.posts == []
+
+
+def test_openai_responses_gateway_wraps_invalid_resolver_address() -> None:
+    client = FakeHttpClient(FakeHttpResponse({"output_text": "{}"}))
+    gateway = OpenAIResponsesLLMGateway(
+        api_key="sk-test",
+        model="gpt-test",
+        base_url="https://models.example.com",
+        client=client,
+        base_url_resolver=lambda hostname: ["not-an-ip"],
+    )
+
+    with pytest.raises(LLMGatewayError, match="Unsafe OpenAI base_url"):
+        gateway.generate_structured(
+            agent_name="StrategyDraftAgent",
+            context_pack=make_context_pack(),
+            output_schema={"type": "object"},
+            schema_name="agent_output",
+            max_output_tokens=800,
+        )
+
+    assert client.posts == []
+
+
 def test_deepseek_chat_gateway_uses_json_output_mode_without_raw_state() -> None:
     client = FakeHttpClient(
         FakeHttpResponse(
@@ -159,6 +203,27 @@ def test_deepseek_chat_gateway_rejects_invalid_json_content() -> None:
             schema_name="agent_output",
             max_output_tokens=800,
         )
+
+
+def test_deepseek_chat_gateway_rejects_literal_private_base_url() -> None:
+    client = FakeHttpClient(FakeHttpResponse({"choices": []}))
+    gateway = DeepSeekChatCompletionsLLMGateway(
+        api_key="sk-deepseek",
+        model="deepseek-v4-pro",
+        base_url="https://127.0.0.1:11434",
+        client=client,
+    )
+
+    with pytest.raises(LLMGatewayError, match="Unsafe DeepSeek base_url"):
+        gateway.generate_structured(
+            agent_name="StrategyDraftAgent",
+            context_pack=make_context_pack(),
+            output_schema={"type": "object"},
+            schema_name="agent_output",
+            max_output_tokens=800,
+        )
+
+    assert client.posts == []
 
 
 def test_strict_schema_conversion_removes_defaults_and_requires_all_object_fields() -> None:

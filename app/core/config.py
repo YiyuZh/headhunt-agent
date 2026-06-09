@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     embedding_api_key: SecretStr | None = None
     embedding_dimension: int = Field(default=1536, gt=0)
 
-    channel_gateway_provider: str = "discord"
+    channel_gateway_provider: str = "feishu"
     discord_public_key: str | None = None
     discord_bot_token: SecretStr | None = None
     discord_application_id: str | None = None
@@ -89,6 +89,11 @@ class Settings(BaseSettings):
             "discord_model_commands_implemented": True,
             "discord_command_registration_implemented": True,
             "discord_war_room_implemented": False,
+            "feishu_task_flow_implemented": True,
+            "feishu_byok_cards_implemented": True,
+            "review_gate_implemented": True,
+            "agent_sop_registry_implemented": True,
+            "memory_retention_implemented": True,
             "feishu_app_configured": bool(self.feishu_app_id and self.feishu_app_secret),
             "feishu_callback_configured": bool(
                 self.feishu_verification_token and self.feishu_encrypt_key

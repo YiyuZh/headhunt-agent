@@ -4,12 +4,12 @@
 
 本文是 Agent、Graph、ContextPack 和记忆注入的工程施工文档。当前已有 ContextPack
 schema、ContextPackBuilder typed snapshot、ArtifactStore repository、MemoryGateway /
-pgvector 检索、LangGraph 根图 / council 子图 / 业务子图、AgentHarness、Discord optional BYOK
-用户模型 profile、OpenAI/DeepSeek LLMGateway、OpenAI EmbeddingGateway、AgentRuns 写入、RunMemory 写入和
+pgvector 检索、LangGraph 根图 / council 子图 / 业务子图、AgentHarness、channel user BYOK
+模型 profile、OpenAI/DeepSeek LLMGateway、OpenAI EmbeddingGateway、AgentRuns 写入、RunMemory 写入和
 War Room 卡片 outbox、ActionGate、真实 LangGraph `interrupt()` / resume 和审批后
 `bitable_write` outbox 排队。PRD 已切换为 Feishu First；飞书事件/卡片、
-TaskIntakeParser double check、ReviewGate、AgentSOPRegistry 和 memory retention job 尚未实现。
-Discord BYOK chat profile 作为 optional adapter 历史能力保留；飞书 BYOK 卡片仍需实现。embedding profile 已作为可选 MemoryGateway
+TaskIntakeParser 基础 double check 已实现到飞书确认卡排队和 approve 后 graph_dispatch；Feishu BYOK 配置卡已实现本地表单提交、加密保存、同 namespace owner 校验、保存后 setup 卡更新和续发任务确认卡；LLM/Embedding 出站层会对自定义 base_url 执行 HTTPS/DNS/private-IP 安全校验；AgentSOPRegistry 已实现基础运行时 SOPRef 注入；memory retention job 已实现 30d/90d/permanent 策略、内部 API 和 CLI；ReviewGate 已实现本地 artifact-level 运行时、一次 repair、schema fail-closed、PII/evidence/context/safety 检查和审批 finding 摘要；edit 表单仍待实现。
+Discord BYOK chat profile 作为 optional adapter 历史能力保留；飞书 BYOK 卡片真实提交仍需联调。embedding profile 已作为可选 MemoryGateway
 路由输入，无用户 embedding profile 时记忆向量化/检索会 skipped 并审计，不阻断普通 chat agent。
 真实 PostgreSQL 服务、真实 PostgreSQL checkpointer、真实飞书联调和真实 OpenAI/DeepSeek 调用仍待验证。
 
@@ -67,9 +67,9 @@ council 子图负责：
 - 通过 ActionGateway 提出副作用。
 
 正式 graph 之前：
-- `TaskIntakeParser` 解析 Discord slash command、附件摘要、modal 字段或 API payload。
+- `TaskIntakeParser` 解析飞书消息、飞书入口卡字段、附件摘要或内部 API payload；Discord slash command 仅作为 optional adapter 输入。
 - 产出 `CanonicalTaskBrief / RequisitionBrief / ResumeProfile / CandidateEvidencePack`。
-- Discord 发送任务确认卡，用户 approve/edit/reject。
+- 飞书发送任务确认卡，用户 approve/edit/reject。
 - `TaskIntakeParser` 输出的每个关键字段都必须带 `field_source` 和 `confidence`；无 source 的推断只能进入 `assumptions`。
 - approve 后冻结 `CanonicalTaskBrief.version`，edit 必须生成新 version 并再次确认。
 - 未 approve 的任务不得进入 `headhunter_war_room_graph`。
@@ -145,7 +145,7 @@ ContextPack 是 Agent 唯一可见的上下文包。
 
 | Agent | 可拿上下文 | 不可拿上下文 |
 | --- | --- | --- |
-| TaskIntakeParser | Discord slash command / modal 字段、附件摘要、入口来源 | 完整 Discord 历史消息、非任务 channel 内容 |
+| TaskIntakeParser | 飞书消息 / 入口卡字段、附件摘要、API payload、optional Discord adapter 输入 | 完整飞书/Discord 历史消息、非任务 channel 内容 |
 | IntentRouterAgent | CanonicalTaskBrief 摘要、入口来源、少量 ProjectMemory refs | 历史全量对话、候选人明文库 |
 | StrategyDraftAgent | CanonicalTaskBrief、RequisitionBrief 摘要、必要 ProjectMemory / CaseMemory refs | 全量案例库、候选人联系方式 |
 | ChallengeReviewAgent | 六部或必要 Agent 的输出摘要、风险 flags、缺字段列表 | 原始 ContextPack、原始 prompt、全量素材 |
@@ -155,7 +155,7 @@ ContextPack 是 Agent 唯一可见的上下文包。
 | MarketCompAgent | 岗位摘要、薪资/市场相关 source refs、可用 CaseMemory refs | 候选人隐私明文 |
 | OutreachValueAgent | 岗位卖点摘要、已确认候选人亮点摘要、话术模板 memory refs | 未确认推荐结论、未授权 PII |
 | ComplianceRiskAgent | 当前提案摘要、PII 等级、证据 refs、policy 摘要 | 业务无关的大量历史 |
-| DataAutomationAgent | 数据导入摘要、Discord/数据库 schema 摘要、自动化约束 | Discord/飞书 secret、模型 key、候选人联系方式明文 |
+| DataAutomationAgent | 数据导入摘要、飞书/Bitable/数据库 schema 摘要、自动化约束 | 飞书/Discord secret、模型 key、候选人联系方式明文 |
 | CouncilSynthesizerAgent | 各 Agent 输出摘要、风险摘要、分歧点和置信度 | 各 Agent 原始 ContextPack、原始 prompt、全量素材 |
 | ReviewGate | 被审 artifact、schema、审查 SOP、证据 refs、必要 memory/source refs | 原始 chain-of-thought、全量历史 |
 
@@ -233,7 +233,7 @@ candidate_id
   "can_read_memory_content": false,
   "pii_access_level": "medium",
   "allowed_side_effects": ["audit_write", "run_memory_write"],
-  "model_profile_id": "可选，由 Discord 用户选择后写入 AgentTask",
+  "model_profile_id": "可选，由飞书用户 BYOK profile 或 optional adapter 选择后写入 AgentTask",
   "requires_interrupt_for": ["recommendation_commit", "business_write", "outreach_send"]
 }
 ```
@@ -250,7 +250,7 @@ AgentHarness 是所有 Agent 执行入口。
 5. 调用 AgentSOPRegistry 检索必要 SOPRef。
 6. 裁剪 source refs 和 optional sop_refs。
 7. 生成 ContextPack。
-8. 根据 `AgentTask.model_profile_id + model_owner_user_id + model_guild_id` 解析用户 BYOK profile，并调用 LLMGateway。
+8. 根据 `AgentTask.model_profile_id + model_owner_user_id + model_guild_id` 解析用户 BYOK profile，并调用 LLMGateway；`model_guild_id` 是历史兼容字段，在 Feishu First 中表示 channel/workspace owner scope，不代表 Discord 是主路径。飞书卡片提交还会携带 `model_owner_id_type`，服务端只比较同 namespace 的 operator ID。
 9. 校验结构化输出。
 10. 通过 ReviewGate 审查关键产物。
 11. 写 AgentRuns、模型 profile 审计摘要、ArtifactStore、RunMemory 和检索审计。

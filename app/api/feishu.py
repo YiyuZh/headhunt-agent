@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.config import Settings, get_settings
+from app.core.config import Settings
 from app.feishu.callbacks import (
     FeishuCallbackConfigurationError,
     FeishuCallbackPayloadError,
@@ -20,10 +20,15 @@ from app.storage.database import get_session
 router = APIRouter(prefix="/feishu", tags=["feishu"])
 
 
+def get_feishu_settings(request: Request) -> Settings:
+    return request.app.state.settings
+
+
 def get_feishu_callback_service(
     session: Session = Depends(get_session),
+    settings: Settings = Depends(get_feishu_settings),
 ) -> FeishuCallbackService:
-    return FeishuCallbackService(session)
+    return FeishuCallbackService(session, settings=settings)
 
 
 @router.post(
@@ -32,7 +37,7 @@ def get_feishu_callback_service(
 )
 async def receive_feishu_event(
     request: Request,
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_feishu_settings),
     service: FeishuCallbackService = Depends(get_feishu_callback_service),
 ) -> FeishuUrlChallengeResponse | FeishuEventAck:
     callback = _verify_event_request(request, await request.body(), settings)
@@ -55,7 +60,7 @@ async def receive_feishu_event(
 )
 async def receive_feishu_card_action(
     request: Request,
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_feishu_settings),
     service: FeishuCallbackService = Depends(get_feishu_callback_service),
 ) -> dict[str, Any] | FeishuUrlChallengeResponse:
     callback = _verify_card_request(request, await request.body(), settings)
@@ -69,7 +74,26 @@ async def receive_feishu_card_action(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
-    content = "已收到，正在继续任务" if result.status == "queued" else "已处理过该操作"
+    if result.status == "model_setup_saved":
+        return {
+            "toast": {
+                "type": "info",
+                "content": result.message or "模型已保存并设为默认，已继续发送任务确认卡",
+            }
+        }
+    if result.status == "model_setup_failed":
+        return {
+            "toast": {
+                "type": "error",
+                "content": result.message or "模型配置失败，未启动任务",
+            }
+        }
+    content_by_status = {
+        "queued": "已确认，正在继续任务",
+        "rejected": "已拒绝，未启动任务",
+        "duplicate": "已处理过该操作",
+    }
+    content = content_by_status.get(result.status, "已收到")
     return {"toast": {"type": "info", "content": content}}
 
 

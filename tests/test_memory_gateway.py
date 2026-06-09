@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 from sqlalchemy.dialects import postgresql
@@ -7,7 +8,13 @@ from app.memory.gateway import PostgresMemoryGateway
 from app.memory.vector_store import PostgresVectorMemoryStore, build_memory_search_query
 from app.schemas.common import MemoryScope, MemoryStatus, PiiLevel
 from app.schemas.memory import MemoryItem, MemoryRef
-from app.storage.models import MemoryRetrievalAudit
+from app.storage.models import (
+    MemoryItem as MemoryItemRecord,
+)
+from app.storage.models import (
+    MemoryRetrievalAudit,
+    MemoryUpdateProposal,
+)
 
 
 class FakeEmbeddingGateway:
@@ -35,16 +42,20 @@ class FakeVectorStore:
 
 
 class FakeSession:
-    def __init__(self):
+    def __init__(self, records=None):
         self.added = []
         self.statements = []
         self.flush_count = 0
+        self.records = records or {}
 
     def add(self, value):
         self.added.append(value)
 
     def execute(self, statement):
         self.statements.append(statement)
+
+    def get(self, model, identity):
+        return self.records.get((model, identity))
 
     def flush(self):
         self.flush_count += 1
@@ -241,6 +252,7 @@ def test_memory_gateway_propose_update_vectorizes_run_memory_as_active() -> None
         summary="Run outcome summary",
         content_ref="memory://run/1",
     )
+    before = datetime.now(UTC)
 
     result = PostgresMemoryGateway(
         session=session,
@@ -252,6 +264,10 @@ def test_memory_gateway_propose_update_vectorizes_run_memory_as_active() -> None
     stored_item, vector = store.upserts[0]
     assert stored_item.status == MemoryStatus.active
     assert stored_item.owner_agent == "StrategyDraftAgent"
+    assert stored_item.expires_at is not None
+    assert before + timedelta(days=30) <= stored_item.expires_at <= datetime.now(UTC) + timedelta(
+        days=30
+    )
     assert len(vector) == 1536
     assert session.added == []
 
@@ -264,6 +280,7 @@ def test_memory_gateway_propose_update_keeps_long_term_memory_pending_review() -
         summary="Project preference",
         content_ref="memory://project/1",
     )
+    before = datetime.now(UTC)
 
     PostgresMemoryGateway(
         session=session,
@@ -273,8 +290,76 @@ def test_memory_gateway_propose_update_keeps_long_term_memory_pending_review() -
 
     stored_item, _ = store.upserts[0]
     assert stored_item.status == MemoryStatus.pending_review
+    assert stored_item.expires_at is not None
+    assert before + timedelta(days=90) <= stored_item.expires_at <= datetime.now(UTC) + timedelta(
+        days=90
+    )
     assert len(session.added) == 1
     assert session.added[0].proposal_type == "create"
+
+
+def test_memory_gateway_propose_update_clears_permanent_expiry() -> None:
+    session = FakeSession()
+    store = FakeVectorStore([])
+    item = MemoryItem(
+        scope=MemoryScope.project,
+        summary="Permanent project preference",
+        content_ref="memory://project/permanent",
+        expires_at=datetime(2026, 1, 1, tzinfo=UTC),
+        metadata={"retention_policy": "permanent"},
+    )
+
+    PostgresMemoryGateway(
+        session=session,
+        embedding_gateway=FakeEmbeddingGateway(),
+        vector_store=store,
+    ).propose_update("StrategyDraftAgent", item)
+
+    stored_item, _ = store.upserts[0]
+    assert stored_item.status == MemoryStatus.pending_review
+    assert stored_item.expires_at is None
+
+
+def test_memory_gateway_approve_update_renews_expired_pending_memory() -> None:
+    proposal_id = uuid4()
+    memory_id = uuid4()
+    proposal = SimpleNamespace(
+        id=proposal_id,
+        memory_id=memory_id,
+        status="pending",
+        approver=None,
+        decided_at=None,
+    )
+    memory = SimpleNamespace(
+        id=memory_id,
+        scope="ProjectMemory",
+        status="expired",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        expires_at=datetime.now(UTC) - timedelta(days=1),
+        metadata_={},
+    )
+    session = FakeSession(
+        records={
+            (MemoryUpdateProposal, proposal_id): proposal,
+            (MemoryItemRecord, memory_id): memory,
+        }
+    )
+    before = datetime.now(UTC)
+
+    PostgresMemoryGateway(
+        session=session,
+        embedding_gateway=FakeEmbeddingGateway(),
+        vector_store=FakeVectorStore([]),
+    ).approve_update(str(proposal_id), reviewer="lead")
+
+    assert proposal.status == "approved"
+    assert proposal.approver == {"reviewer": "lead"}
+    assert memory.status == "active"
+    assert memory.expires_at is not None
+    assert before + timedelta(days=90) <= memory.expires_at <= datetime.now(UTC) + timedelta(
+        days=90
+    )
+    assert session.flush_count == 1
 
 
 def test_pgvector_search_query_filters_active_unexpired_memory() -> None:

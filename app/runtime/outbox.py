@@ -38,6 +38,7 @@ class LangGraphOutboxHandler:
                 "War Room side effects, and runtime dependency wiring"
             )
         state = feishu_payload_to_initial_state(payload)
+        _require_feishu_task_intake_ready(state)
         with self._graph_context() as graph:
             self.last_result = graph.invoke(
                 state,
@@ -192,6 +193,19 @@ def _direct_human_approval_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _thread_config(thread_id: str) -> dict[str, dict[str, str]]:
     return {"configurable": {"thread_id": str(UUID(str(thread_id)))}}
+
+
+def _require_feishu_task_intake_ready(state: dict[str, Any]) -> None:
+    if state.get("source") != "feishu":
+        return
+    if state.get("model_profile_id") and state.get("model_owner_user_id") and state.get(
+        "model_guild_id"
+    ):
+        return
+    raise RuntimeNotReadyError(
+        "Feishu graph_dispatch requires TaskIntakeParser double check and user BYOK "
+        "profile scope before invoking the runtime graph"
+    )
 
 
 def _extract_message_text(message: dict[str, Any]) -> str:

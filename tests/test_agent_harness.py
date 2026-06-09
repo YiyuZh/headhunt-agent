@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from app.gateways.llm import LLMModelInfo
 from app.harness.agent_harness import AgentHarness
+from app.runtime.review_gate import ReviewGate
 from app.schemas.agent import AgentPolicy, AgentTask
 from app.schemas.common import CouncilMode, MemoryScope
 from app.schemas.memory import MemoryRef
@@ -47,8 +48,9 @@ class FakeMemoryGateway:
 
 
 class FakeLLMGateway:
-    def __init__(self):
+    def __init__(self, *, pii_level: str = "none"):
         self.calls = []
+        self.pii_level = pii_level
 
     def model_info(self, **kwargs):
         return LLMModelInfo(
@@ -65,7 +67,7 @@ class FakeLLMGateway:
             "artifact_payload": {"plan": ["校准岗位", "生成目标公司"]},
             "evidence_refs": ["source://jd/1"],
             "source_refs": ["source://market/1"],
-            "pii_level": "none",
+            "pii_level": self.pii_level,
             "confidence": 0.8,
             "requires_human_confirmation": False,
         }
@@ -144,6 +146,9 @@ def test_agent_harness_builds_minimal_context_and_persists_run_outputs() -> None
     assert llm.calls[0]["model_owner_user_id"] == "discord-user-1"
     assert context_pack.agent_name == "StrategyDraftAgent"
     assert context_pack.memory_refs == [memory.memory_ref]
+    assert [item.sop_id for item in context_pack.sop_refs] == ["artifact-review-gate"]
+    assert not hasattr(context_pack.sop_refs[0], "content")
+    assert any("full SOP documents" in item for item in context_pack.excluded_context_reason)
     assert not hasattr(context_pack, "recruitment_state")
     assert not hasattr(context_pack, "node_history")
     assert artifact_store.writes[0][0].run_id == result.run_id
@@ -154,7 +159,28 @@ def test_agent_harness_builds_minimal_context_and_persists_run_outputs() -> None
     assert session.added[0].model_name == "deepseek-v4-pro"
     assert session.added[0].model_owner_user_id == "discord-user-1"
     assert war_room.agent_cards[0]["chat_id"] == "oc_1"
+    assert war_room.agent_cards[0]["context_pack"].sop_refs == context_pack.sop_refs
     assert war_room.agent_cards[0]["output"].summary == "策略草稿已生成"
+
+
+def test_agent_harness_preserves_high_pii_for_review_gate() -> None:
+    session = FakeSession()
+    memory = FakeMemoryGateway()
+    artifact_store = FakeArtifactStore()
+    task = make_task()
+
+    result = AgentHarness(
+        session=session,
+        llm_gateway=FakeLLMGateway(pii_level="high"),
+        memory_gateway=memory,
+        artifact_store=artifact_store,
+    ).run_agent(task)
+
+    assert artifact_store.writes[0][0].pii_level == "high"
+    assert result.artifact.pii_level == "high"
+    review = ReviewGate().review_artifact(result.artifact)
+    assert review.status == "needs_human"
+    assert any(item.path == "pii_level" for item in review.findings)
 
 
 def test_agent_task_rejects_mismatched_policy_agent() -> None:

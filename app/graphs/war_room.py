@@ -8,6 +8,7 @@ from langgraph.types import interrupt
 
 from app.policy.engine import PolicyEngine
 from app.runtime.action_executor import ActionExecutionError
+from app.runtime.review_gate import ReviewGate, repair_artifact_for_review
 from app.schemas.agent import AgentPolicy, AgentTask
 from app.schemas.artifacts import ArtifactRef
 from app.schemas.common import CouncilMode, MemoryScope, PiiLevel
@@ -43,6 +44,7 @@ class RecruitmentState(TypedDict, total=False):
     candidate_profile: dict[str, Any]
     candidate_match: dict[str, Any]
     review_result: dict[str, Any]
+    review_fix_attempts: int
     human_approval: dict[str, Any]
     feishu_write_result: dict[str, Any]
     action_proposal: dict[str, Any]
@@ -71,9 +73,11 @@ def build_headhunter_war_room_graph(
     agent_harness=None,
     action_gate=None,
     action_executor=None,
+    review_gate=None,
     checkpointer=None,
 ):
     resolved_policy_engine = policy_engine or PolicyEngine()
+    resolved_review_gate = review_gate or ReviewGate()
     builder = StateGraph(RecruitmentState)
 
     builder.add_node("receive_user_input", receive_user_input)
@@ -162,6 +166,12 @@ def build_headhunter_war_room_graph(
         lambda state: interrupt_human_approval(state, action_gate=action_gate),
     )
     builder.add_node(
+        "review_gate",
+        lambda state: review_latest_artifact(state, review_gate=resolved_review_gate),
+    )
+    builder.add_node("repair_artifact", repair_artifact_after_review)
+    builder.add_node("reject_review_gate", reject_review_gate)
+    builder.add_node(
         "execute_approved_action",
         lambda state: execute_approved_action(state, action_executor=action_executor),
     )
@@ -198,7 +208,18 @@ def build_headhunter_war_room_graph(
         "outreach_and_report_graph",
         "followup_review_graph",
     ):
-        builder.add_edge(node_name, "interrupt_human_approval")
+        builder.add_edge(node_name, "review_gate")
+    builder.add_conditional_edges(
+        "review_gate",
+        route_from_review_gate,
+        {
+            "repair_artifact": "repair_artifact",
+            "reject_review_gate": "reject_review_gate",
+            "interrupt_human_approval": "interrupt_human_approval",
+        },
+    )
+    builder.add_edge("repair_artifact", "review_gate")
+    builder.add_edge("reject_review_gate", "record_agent_run")
     builder.add_edge("interrupt_human_approval", "execute_approved_action")
     builder.add_edge("execute_approved_action", "record_agent_run")
     builder.add_edge("record_agent_run", END)
@@ -284,6 +305,8 @@ def invoke_business_subgraph(graph, state: RecruitmentState) -> dict[str, Any]:
     )
     return {
         "artifacts": result.get("artifacts", []),
+        "review_result": result.get("review_result"),
+        "review_fix_attempts": result.get("review_fix_attempts", 0),
         "node_history": result.get("node_history", []),
     }
 
@@ -571,6 +594,79 @@ def record_agent_run(state: RecruitmentState) -> dict[str, Any]:
     }
 
 
+def review_latest_artifact(
+    state: RecruitmentState,
+    *,
+    review_gate: ReviewGate,
+) -> dict[str, Any]:
+    artifact = _latest_business_artifact(state)
+    repair_attempts = int(state.get("review_fix_attempts") or 0)
+    result = review_gate.review_artifact(
+        artifact,
+        review_context=_review_context_from_state(state),
+        repair_attempts=repair_attempts,
+    )
+    return {
+        "review_result": result.model_dump(mode="json"),
+        "node_history": [
+            _history(
+                "review_gate",
+                f"ReviewGate status={result.status} findings={len(result.findings)}",
+            )
+        ],
+    }
+
+
+def route_from_review_gate(state: RecruitmentState) -> str:
+    result = state.get("review_result") or {}
+    if _review_gate_has_schema_error(result):
+        return "reject_review_gate"
+    if result.get("status") == "needs_fix" and int(state.get("review_fix_attempts") or 0) < 1:
+        return "repair_artifact"
+    return "interrupt_human_approval"
+
+
+def reject_review_gate(state: RecruitmentState) -> dict[str, Any]:
+    artifact = _latest_business_artifact(state)
+    finding_summary = _review_findings_summary(state.get("review_result") or {})
+    return {
+        "ready_to_execute": False,
+        "approval_required": False,
+        "errors": [
+            {
+                "node": "review_gate",
+                "message": (
+                    "ReviewGate rejected malformed artifact before action proposal"
+                    + (f": {finding_summary}" if finding_summary else ".")
+                ),
+                "artifact_id": str(artifact.get("artifact_id") or ""),
+                "artifact_kind": str(artifact.get("kind") or ""),
+            }
+        ],
+        "node_history": [
+            _history(
+                "reject_review_gate",
+                "blocked malformed artifact before action proposal",
+            )
+        ],
+    }
+
+
+def repair_artifact_after_review(state: RecruitmentState) -> dict[str, Any]:
+    artifact = _latest_business_artifact(state)
+    repaired = repair_artifact_for_review(artifact, state.get("review_result") or {})
+    return {
+        "artifacts": [repaired],
+        "review_fix_attempts": int(state.get("review_fix_attempts") or 0) + 1,
+        "node_history": [
+            _history(
+                "repair_artifact",
+                f"repaired {artifact.get('kind', 'artifact')} after ReviewGate needs_fix",
+            )
+        ],
+    }
+
+
 def interrupt_human_approval(
     state: RecruitmentState,
     *,
@@ -674,6 +770,17 @@ def _propose_business_action(state: RecruitmentState, *, action_gate):
         ],
         "client_token": str(uuid4()),
     }
+    review_result = state.get("review_result")
+    if isinstance(review_result, dict):
+        payload["review_result"] = review_result
+        status = review_result.get("status")
+        finding_summary = _review_findings_summary(review_result)
+        if finding_summary:
+            payload["review_findings_summary"] = finding_summary
+        if status and status != "pass":
+            payload_summary = f"{payload_summary} | ReviewGate={status}"
+            if finding_summary:
+                payload_summary = f"{payload_summary}: {finding_summary}"
     feishu_context = state.get("feishu_context") or {}
     return action_gate.propose_action(
         thread_id=UUID(str(state["thread_id"])),
@@ -728,6 +835,59 @@ def _record_fields_for_artifact(
         "mode_reason": str(state.get("mode_reason") or ""),
         "source": str(state.get("source") or "runtime"),
         "source_ref": str(state.get("source_ref") or ""),
+        "review_gate_status": str((state.get("review_result") or {}).get("status") or ""),
+        "review_gate_findings": len((state.get("review_result") or {}).get("findings") or []),
+    }
+
+
+def _review_gate_has_schema_error(review_result: dict[str, Any]) -> bool:
+    findings = review_result.get("findings")
+    if not isinstance(findings, list):
+        return False
+    return any(
+        isinstance(item, dict) and item.get("reviewer") == "SchemaValidator"
+        for item in findings
+    )
+
+
+def _review_findings_summary(review_result: dict[str, Any], *, limit: int = 3) -> str:
+    findings = review_result.get("findings")
+    if not isinstance(findings, list):
+        return ""
+    parts: list[str] = []
+    for item in findings:
+        if not isinstance(item, dict):
+            continue
+        reviewer = str(item.get("reviewer") or "ReviewGate")
+        path = str(item.get("path") or "").strip()
+        message = " ".join(str(item.get("message") or "").split())
+        if not message:
+            continue
+        prefix = f"{reviewer}/{path}" if path else reviewer
+        parts.append(f"{prefix}: {message}")
+        if len(parts) >= limit:
+            break
+    summary = " | ".join(parts)
+    return summary[:500]
+
+
+def _review_context_from_state(state: RecruitmentState) -> dict[str, Any]:
+    artifacts = state.get("artifacts") or []
+    memory_refs = state.get("memory_refs") or []
+    latest = _latest_business_artifact(state)
+    return {
+        "thread_id": str(state.get("thread_id") or ""),
+        "source": str(state.get("source") or "runtime"),
+        "source_ref": str(state.get("source_ref") or ""),
+        "council_mode": str(state.get("council_mode") or ""),
+        "artifact_count": len(artifacts),
+        "memory_ref_count": len(memory_refs),
+        "total_tokens_estimate": sum(
+            int(item.get("size_tokens_estimate") or 0)
+            for item in artifacts
+            if isinstance(item, dict)
+        ),
+        "pii_level": str(latest.get("pii_level") or "none"),
     }
 
 

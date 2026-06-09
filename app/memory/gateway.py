@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.memory.retention import default_memory_expires_at, is_permanent_memory
 from app.schemas.common import MemoryStatus
 from app.schemas.memory import MemoryItem as MemoryItemSchema
 from app.schemas.memory import MemoryRef
@@ -196,10 +197,13 @@ class PostgresMemoryGateway:
             if item.scope.value == "RunMemory"
             else MemoryStatus.pending_review
         )
+        retention_now = datetime.now(UTC)
+        expires_at = _expires_at_for_memory_item(item, created_at=retention_now)
         stored_item = item.model_copy(
             update={
                 "owner_agent": item.owner_agent or agent_name,
                 "status": status,
+                "expires_at": expires_at,
             }
         )
         embedding = self.embedding_gateway.embed_texts(
@@ -231,9 +235,19 @@ class PostgresMemoryGateway:
         if memory is None:
             raise KeyError(str(proposal.memory_id))
 
+        decided_at = datetime.now(UTC)
         proposal.status = "approved"
         proposal.approver = {"reviewer": reviewer}
-        proposal.decided_at = datetime.now(UTC)
+        proposal.decided_at = decided_at
+        metadata = memory.metadata_ if isinstance(memory.metadata_, dict) else {}
+        if is_permanent_memory(metadata):
+            memory.expires_at = None
+        else:
+            memory.expires_at = default_memory_expires_at(
+                scope=memory.scope,
+                created_at=decided_at,
+                metadata=metadata,
+            )
         memory.status = "active"
         self.session.flush()
 
@@ -380,3 +394,13 @@ def _json_safe(values: dict[str, Any]) -> dict[str, Any]:
         else:
             safe[key] = str(value)
     return safe
+
+
+def _expires_at_for_memory_item(item: MemoryItemSchema, *, created_at: datetime) -> datetime | None:
+    if is_permanent_memory(item.metadata):
+        return None
+    return item.expires_at or default_memory_expires_at(
+        scope=item.scope.value,
+        created_at=created_at,
+        metadata=item.metadata,
+    )

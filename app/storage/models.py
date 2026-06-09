@@ -300,6 +300,7 @@ class AgentArtifact(CreatedAtMixin, Base):
             name="ck_artifacts_pii_level",
         ),
         Index("idx_artifacts_thread_kind", "thread_id", "kind"),
+        Index("idx_artifacts_thread_created", "thread_id", "created_at"),
         Index("idx_artifacts_run_id", "run_id"),
     )
 
@@ -648,6 +649,8 @@ class ActionProposal(TimestampMixin, Base):
         ),
         Index("idx_action_proposals_status_created", "status", "created_at"),
         Index("idx_action_proposals_thread", "thread_id"),
+        Index("idx_action_proposals_interrupt_created", "interrupt_id", "created_at"),
+        Index("idx_action_proposals_thread_status_created", "thread_id", "status", "created_at"),
     )
 
 

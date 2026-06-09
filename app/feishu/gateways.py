@@ -12,6 +12,7 @@ from app.core.config import Settings
 
 TOKEN_REFRESH_WINDOW_SECONDS = 1800
 TOKEN_EXPIRED_CODES = {99991663, 99991664, 99991668}
+BITABLE_BATCH_CREATE_MAX_RECORDS = 1000
 
 
 class FeishuGatewayError(RuntimeError):
@@ -177,6 +178,7 @@ class FeishuHttpBitableGateway:
         client_token: str,
     ) -> list[str]:
         _validate_uuid4_client_token(client_token)
+        _validate_bitable_batch_records(records)
         token = self.auth_provider.get_tenant_access_token()
         response = self.client.post(
             f"/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records/batch_create",
@@ -356,3 +358,13 @@ def _validate_uuid4_client_token(client_token: str) -> None:
         raise FeishuGatewayError("Bitable client_token must be a UUIDv4 string") from exc
     if parsed.version != 4 or str(parsed) != client_token.lower():
         raise FeishuGatewayError("Bitable client_token must be a UUIDv4 string")
+
+
+def _validate_bitable_batch_records(records: list[dict]) -> None:
+    if not records or len(records) > BITABLE_BATCH_CREATE_MAX_RECORDS:
+        raise FeishuGatewayError(
+            "Bitable batch_create records must contain "
+            f"1-{BITABLE_BATCH_CREATE_MAX_RECORDS} objects"
+        )
+    if not all(isinstance(record, dict) for record in records):
+        raise FeishuGatewayError("Bitable batch_create records must be objects")

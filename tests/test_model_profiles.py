@@ -213,14 +213,14 @@ class FakeUserModelFactory:
         return self.gateway
 
 
-def test_user_model_llm_gateway_requires_discord_owner_scope_for_profile_calls() -> None:
+def test_user_model_llm_gateway_requires_owner_scope_for_profile_calls() -> None:
     gateway = UserModelLLMGateway(factory=FakeUserModelFactory())
 
     with pytest.raises(UserModelGatewayError, match="model_guild_id"):
         gateway.generate_structured(model_profile_id=uuid4(), model_owner_user_id="user-1")
 
 
-def test_user_model_llm_gateway_model_info_requires_discord_owner_scope() -> None:
+def test_user_model_llm_gateway_model_info_requires_owner_scope() -> None:
     gateway = UserModelLLMGateway(factory=FakeUserModelFactory())
 
     with pytest.raises(UserModelGatewayError, match="model_guild_id"):

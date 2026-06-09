@@ -1,6 +1,6 @@
 # AI 猎头隔离 Agent 协作系统 PRD：总入口与拼接说明
 
-> 模块化目录 `/Users/w/Documents/lietou/docs/prd/modules/` 把 PRD 拆成核心模块，便于逐步实现、逐步审核、逐步追加案例数据。完整拼接版同步到 `/Users/w/Documents/lietou/docs/prd/AI猎头作战系统_PRD_完整拼接版.md` 和 `/Users/w/Documents/lietou/docs/prd/ai猎头_agent体系_codex搭建说明.md`。
+> 模块化目录 `<repo-root>/docs/prd/modules/` 把 PRD 拆成核心模块，便于逐步实现、逐步审核、逐步追加案例数据。完整拼接版同步到 `<repo-root>/docs/prd/AI猎头作战系统_PRD_完整拼接版.md` 和 `<repo-root>/docs/prd/ai猎头_agent体系_codex搭建说明.md`。
 
 ## 1. 总体定位
 
@@ -71,7 +71,7 @@
 
 ## 3. 拼接命令
 
-后续需要生成完整 PRD 时，在 `/Users/w/Documents/lietou/docs/prd/modules/` 运行：
+后续需要生成完整 PRD 时，在 `<repo-root>/docs/prd/modules/` 运行：
 
 ```bash
 cat \
@@ -1293,7 +1293,7 @@ source_refs
 飞书卡片：模型配置
 -> provider: openai / deepseek
 -> model_name
--> usage: chat / embedding
+-> usage: chat（当前飞书落地卡先开放 chat；embedding profile 是后续入口）
 -> display_name
 -> api_key
 -> optional base_url
@@ -2175,11 +2175,12 @@ FEISHU_APP_ID=
 FEISHU_APP_SECRET=
 FEISHU_VERIFICATION_TOKEN=
 FEISHU_ENCRYPT_KEY=
-FEISHU_EVENT_CALLBACK_PATH=/feishu/events
-FEISHU_CARD_ACTION_CALLBACK_PATH=/feishu/card-actions
 FEISHU_DEFAULT_CHAT_ID=
 FEISHU_BITABLE_APP_TOKEN=
-FEISHU_BITABLE_TABLE_ID=
+FEISHU_BITABLE_REQUISITION_TABLE_ID=
+FEISHU_BITABLE_CANDIDATE_TABLE_ID=
+FEISHU_BITABLE_TALENT_MAP_TABLE_ID=
+FEISHU_BITABLE_REPORT_TABLE_ID=
 FEISHU_OUTBOX_MAX_ATTEMPTS=5
 
 VECTOR_STORE_PROVIDER=pgvector

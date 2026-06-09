@@ -36,7 +36,7 @@ def test_config_check_prints_readiness_without_secrets(monkeypatch, capsys) -> N
 
     output = capsys.readouterr().out
     payload = json.loads(output)
-    assert payload["status"] == "degraded"
+    assert payload["status"] == "ok"
     assert payload["missing_required"] == []
     assert "sk-secret" not in output
     assert "embedding-secret" not in output
@@ -57,10 +57,13 @@ def test_config_check_strict_exits_when_required_config_missing(monkeypatch, cap
     assert "MODEL_SECRET_ENCRYPTION_KEY" in payload["missing_required"]
     assert "INTERNAL_ADMIN_API_KEY" in payload["missing_required"]
     assert "LLM_API_KEY" not in payload["missing_required"]
-    assert "FEISHU_APP_ID" not in payload["missing_required"]
+    assert "FEISHU_APP_ID" in payload["missing_required"]
 
 
-def test_config_check_strict_allows_deferred_adapter_warnings(monkeypatch, capsys) -> None:
+def test_config_check_strict_passes_when_required_runtime_is_configured(
+    monkeypatch,
+    capsys,
+) -> None:
     monkeypatch.setattr(
         config_check,
         "get_settings",
@@ -69,15 +72,42 @@ def test_config_check_strict_allows_deferred_adapter_warnings(monkeypatch, capsy
             model_secret_encryption_key="model-secret",
             embedding_provider="openai",
             embedding_model="text-embedding-3-small",
+            embedding_api_key="embedding-secret",
+            feishu_app_id="cli_app",
+            feishu_app_secret="feishu-secret",
+            feishu_verification_token="verify-secret",
+            feishu_encrypt_key="encrypt-secret",
+            feishu_default_chat_id="oc_test",
+            feishu_bitable_app_token="app_token",
+            feishu_bitable_requisition_table_id="tbl_req",
+            feishu_bitable_candidate_table_id="tbl_cand",
+            feishu_bitable_talent_map_table_id="tbl_map",
+            feishu_bitable_report_table_id="tbl_report",
         ),
     )
 
     config_check.main(["--strict"])
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["status"] == "degraded"
+    assert payload["status"] == "ok"
     assert payload["missing_required"] == []
     assert any(
-        detail["category"] == "feishu" and detail["status"] == "warning"
+        detail["name"] == "feishu_byok_card_implementation"
+        and detail["status"] == "ok"
+        for detail in payload["details"]
+    )
+    assert any(
+        detail["name"] == "review_gate_implementation"
+        and detail["status"] == "ok"
+        for detail in payload["details"]
+    )
+    assert any(
+        detail["name"] == "agent_sop_registry_implementation"
+        and detail["status"] == "ok"
+        for detail in payload["details"]
+    )
+    assert any(
+        detail["name"] == "memory_retention_implementation"
+        and detail["status"] == "ok"
         for detail in payload["details"]
     )

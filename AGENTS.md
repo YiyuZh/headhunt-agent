@@ -1,10 +1,15 @@
 # AGENTS.md
 
-本项目的唯一工作根目录是：
+本项目的规范工作根目录以当前 clone 的仓库根目录为准，文档中统一写作：
 
 ```text
-/Users/w/Documents/lietou
+<repo-root>
 ```
+
+已知协作 clone 路径：
+
+- Windows 当前目录：`D:\apps\headhunt-agent`
+- 历史 macOS/Linux 目录：`/Users/w/Documents/lietou`
 
 ## 必读顺序
 

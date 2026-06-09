@@ -26,6 +26,8 @@ dependencies = [
 lietou-config-check = "app.runtime.config_check:main"
 lietou-discord-register-commands = "app.runtime.discord_commands:main"
 lietou-external-smoke = "app.runtime.external_smoke:main"
+lietou-local-doctor = "app.runtime.local_doctor:main"
+lietou-memory-retention = "app.runtime.memory_retention:main"
 lietou-outbox-worker = "app.runtime.worker:main"
 lietou-postgres-smoke = "app.runtime.postgres_smoke:main"
 

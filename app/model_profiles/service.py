@@ -52,7 +52,12 @@ class ModelProfileService:
             timeout_seconds=2.0,
         )
 
-    def create_profile(self, data: ModelProfileCreateInput) -> ModelProfileSummary:
+    def create_profile(
+        self,
+        data: ModelProfileCreateInput,
+        *,
+        commit: bool = True,
+    ) -> ModelProfileSummary:
         request = CreateModelProfileRequest(
             provider=data.provider,
             model_name=data.model_name,
@@ -70,7 +75,8 @@ class ModelProfileService:
             request=request,
             encrypted_api_key=encrypted,
         )
-        self.session.commit()
+        if commit:
+            self.session.commit()
         return summary
 
     def list_profiles(

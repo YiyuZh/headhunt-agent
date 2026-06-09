@@ -12,6 +12,7 @@ from pydantic import SecretStr
 from starlette.datastructures import Headers
 
 from app.core.config import Settings
+from app.gateways.url_safety import BaseUrlSafetyError, validate_https_base_url
 
 FEISHU_SIGNATURE_HEADER = "X-Lark-Signature"
 FEISHU_TIMESTAMP_HEADER = "X-Lark-Request-Timestamp"
@@ -64,6 +65,46 @@ class FeishuCardActionCommand:
     edited_payload: dict[str, Any] | None
 
 
+@dataclass(frozen=True)
+class FeishuTaskConfirmationCommand:
+    event_id: str
+    thread_id: UUID
+    task_id: UUID
+    idempotency_key: str
+    decision: str
+    source_ref: str
+    task_payload_ref: str
+    open_message_id: str | None
+    open_chat_id: str | None
+    card_update_token_ref: str
+    operator_open_id: str | None
+
+
+@dataclass(frozen=True)
+class FeishuModelProfileSetupCommand:
+    event_id: str
+    thread_id: UUID
+    source_ref: str
+    event_payload_ref: str
+    chat_id: str
+    model_owner_user_id: str
+    model_owner_id_type: str
+    provider: str
+    model_name: str
+    api_key: str
+    display_name: str | None
+    base_url: str | None
+    usage: str
+    make_default: bool
+    idempotency_key: str
+    open_message_id: str | None
+    open_chat_id: str | None
+    card_update_token_ref: str
+    operator_open_id: str | None
+    operator_user_id: str | None
+    operator_union_id: str | None
+
+
 def calculate_feishu_signature(
     *,
     timestamp: str,
@@ -73,17 +114,6 @@ def calculate_feishu_signature(
 ) -> str:
     sign_bytes = (timestamp + nonce + encrypt_key).encode("utf-8") + raw_body
     return hashlib.sha256(sign_bytes).hexdigest()
-
-
-def calculate_feishu_card_signature(
-    *,
-    timestamp: str,
-    nonce: str,
-    verification_token: str,
-    raw_body: bytes,
-) -> str:
-    sign_bytes = (timestamp + nonce + verification_token).encode("utf-8") + raw_body
-    return hashlib.sha1(sign_bytes).hexdigest()
 
 
 class FeishuCallbackVerifier:
@@ -103,8 +133,11 @@ class FeishuCallbackVerifier:
         challenge = payload.get("challenge")
         is_challenge = isinstance(challenge, str)
 
-        if self.encrypt_key and not signature_valid and not is_challenge:
-            raise FeishuCallbackVerificationError("Feishu signature headers are required")
+        if not is_challenge:
+            if not self.encrypt_key:
+                raise FeishuCallbackConfigurationError("FEISHU_ENCRYPT_KEY is required")
+            if not signature_valid:
+                raise FeishuCallbackVerificationError("Feishu signature headers are required")
 
         self._verify_token(payload, is_challenge=is_challenge)
 
@@ -142,13 +175,20 @@ class FeishuCallbackVerifier:
         raw_body: bytes,
         headers: Headers | dict[str, str],
     ) -> VerifiedFeishuCallback:
-        payload = _loads_json(raw_body)
+        body = _loads_json(raw_body)
+        signature_valid = self._validate_signature_if_present(raw_body, headers)
+        payload = self._decrypt_if_needed(body)
+
         challenge = payload.get("challenge")
         is_challenge = isinstance(challenge, str)
 
-        self._verify_token(payload, is_challenge=is_challenge)
         if not is_challenge:
-            self._validate_card_signature_required(raw_body, headers)
+            if not self.encrypt_key:
+                raise FeishuCallbackConfigurationError("FEISHU_ENCRYPT_KEY is required")
+            if not signature_valid:
+                raise FeishuCallbackVerificationError("Feishu signature headers are required")
+
+        self._verify_token(payload, is_challenge=is_challenge)
 
         header = _payload_header(payload)
         event = _payload_event(payload)
@@ -196,6 +236,7 @@ class FeishuCallbackVerifier:
         if not (timestamp and nonce and expected):
             return False
 
+        _validate_timestamp_window(timestamp)
         actual = calculate_feishu_signature(
             timestamp=timestamp,
             nonce=nonce,
@@ -205,56 +246,6 @@ class FeishuCallbackVerifier:
         if not hmac.compare_digest(actual, expected):
             raise FeishuCallbackVerificationError("Invalid Feishu callback signature")
         return True
-
-    def _validate_card_signature_if_present(
-        self,
-        raw_body: bytes,
-        headers: Headers | dict[str, str],
-    ) -> bool:
-        if not self.verification_token:
-            return False
-
-        timestamp = headers.get(FEISHU_TIMESTAMP_HEADER)
-        nonce = headers.get(FEISHU_NONCE_HEADER)
-        expected = headers.get(FEISHU_SIGNATURE_HEADER)
-        if not (timestamp and nonce and expected):
-            return False
-
-        actual = calculate_feishu_card_signature(
-            timestamp=timestamp,
-            nonce=nonce,
-            verification_token=self.verification_token,
-            raw_body=raw_body,
-        )
-        if not hmac.compare_digest(actual, expected):
-            raise FeishuCallbackVerificationError("Invalid Feishu card callback signature")
-        return True
-
-    def _validate_card_signature_required(
-        self,
-        raw_body: bytes,
-        headers: Headers | dict[str, str],
-    ) -> None:
-        if not self.verification_token:
-            raise FeishuCallbackConfigurationError("FEISHU_VERIFICATION_TOKEN is required")
-
-        timestamp = headers.get(FEISHU_TIMESTAMP_HEADER)
-        nonce = headers.get(FEISHU_NONCE_HEADER)
-        expected = headers.get(FEISHU_SIGNATURE_HEADER)
-        if not (timestamp and nonce and expected):
-            raise FeishuCallbackVerificationError(
-                "Feishu card callback signature headers are required"
-            )
-        _validate_timestamp_window(timestamp)
-
-        actual = calculate_feishu_card_signature(
-            timestamp=timestamp,
-            nonce=nonce,
-            verification_token=self.verification_token,
-            raw_body=raw_body,
-        )
-        if not hmac.compare_digest(actual, expected):
-            raise FeishuCallbackVerificationError("Invalid Feishu card callback signature")
 
     def _decrypt_if_needed(self, body: dict[str, Any]) -> dict[str, Any]:
         encrypted = body.get("encrypt")
@@ -309,11 +300,7 @@ def parse_card_action_command(
         raise FeishuCallbackPayloadError("Feishu callback is not card.action.trigger")
 
     event = _payload_event(callback.payload)
-    action = event.get("action")
-    if not isinstance(action, dict):
-        raise FeishuCallbackPayloadError("Feishu card action missing event.action")
-
-    value = _coerce_action_value(action.get("value"))
+    value = _extract_card_action_value(callback.payload)
     idempotency_key = _required_str(value, "idempotency_key")
     decision = _required_str(value, "decision")
     if decision not in {"approve", "reject", "edit"}:
@@ -343,6 +330,150 @@ def parse_card_action_command(
     )
 
 
+def is_task_confirmation_callback(payload: dict[str, Any]) -> bool:
+    try:
+        value = _extract_card_action_value(payload)
+    except FeishuCallbackPayloadError:
+        return False
+    return value.get("action_kind") == "task_double_check"
+
+
+def is_model_profile_setup_callback(payload: dict[str, Any]) -> bool:
+    try:
+        value = _extract_card_action_value(payload)
+    except FeishuCallbackPayloadError:
+        return False
+    return value.get("action_kind") == "model_profile_setup"
+
+
+def parse_task_confirmation_command(
+    callback: VerifiedFeishuCallback,
+    *,
+    payload_ref: str,
+) -> FeishuTaskConfirmationCommand:
+    if callback.event_type != "card.action.trigger":
+        raise FeishuCallbackPayloadError("Feishu callback is not card.action.trigger")
+
+    event = _payload_event(callback.payload)
+    value = _extract_card_action_value(callback.payload)
+    if value.get("action_kind") != "task_double_check":
+        raise FeishuCallbackPayloadError("Feishu card action is not task_double_check")
+
+    decision = _required_str(value, "decision")
+    if decision not in {"approve", "reject"}:
+        raise FeishuCallbackPayloadError("Feishu task confirmation decision is invalid")
+
+    context = event.get("context") if isinstance(event.get("context"), dict) else {}
+    operator = event.get("operator") if isinstance(event.get("operator"), dict) else {}
+    idempotency_key = _required_str(value, "idempotency_key")
+    event_id = callback.event_id or f"task-confirm:{idempotency_key}"
+
+    return FeishuTaskConfirmationCommand(
+        event_id=event_id,
+        thread_id=_required_uuid(value, "thread_id"),
+        task_id=_required_uuid(value, "task_id"),
+        idempotency_key=idempotency_key,
+        decision=decision,
+        source_ref=_required_str(value, "source_ref"),
+        task_payload_ref=_required_str(value, "task_payload_ref"),
+        open_message_id=_first_str(context.get("open_message_id")),
+        open_chat_id=_first_str(context.get("open_chat_id")),
+        card_update_token_ref=payload_ref,
+        operator_open_id=_first_str(operator.get("open_id")),
+    )
+
+
+def parse_model_profile_setup_command(
+    callback: VerifiedFeishuCallback,
+    *,
+    payload_ref: str,
+) -> FeishuModelProfileSetupCommand:
+    if callback.event_type != "card.action.trigger":
+        raise FeishuCallbackPayloadError("Feishu callback is not card.action.trigger")
+
+    event = _payload_event(callback.payload)
+    value = _extract_card_action_value(callback.payload)
+    if value.get("action_kind") != "model_profile_setup":
+        raise FeishuCallbackPayloadError("Feishu card action is not model_profile_setup")
+
+    provider = _required_str(value, "provider").lower()
+    if provider not in {"openai", "deepseek"}:
+        raise FeishuCallbackPayloadError("Feishu model setup provider is invalid")
+    usage = str(value.get("usage") or "chat").lower()
+    if usage != "chat":
+        raise FeishuCallbackPayloadError("Feishu model setup currently supports chat profiles")
+
+    form_values = _extract_card_form_values(callback.payload)
+    api_key = _form_value_str(form_values, "api_key")
+    if not api_key:
+        raise FeishuCallbackPayloadError("Feishu model setup requires api_key")
+    model_name = _form_value_str(form_values, "model_name") or _default_model(provider)
+    display_name = _form_value_str(form_values, "display_name")
+    base_url = _safe_optional_base_url(_form_value_str(form_values, "base_url"))
+    model_owner_id_type = _identity_type_str(value.get("model_owner_id_type")) or "open_id"
+
+    context = event.get("context") if isinstance(event.get("context"), dict) else {}
+    operator = event.get("operator") if isinstance(event.get("operator"), dict) else {}
+    idempotency_key = _required_str(value, "idempotency_key")
+    event_id = callback.event_id or f"model-setup:{idempotency_key}"
+
+    return FeishuModelProfileSetupCommand(
+        event_id=event_id,
+        thread_id=_required_uuid(value, "thread_id"),
+        source_ref=_required_str(value, "source_ref"),
+        event_payload_ref=_required_str(value, "event_payload_ref"),
+        chat_id=_required_str(value, "chat_id"),
+        model_owner_user_id=_required_str(value, "model_owner_user_id"),
+        model_owner_id_type=model_owner_id_type,
+        provider=provider,
+        model_name=model_name,
+        api_key=api_key,
+        display_name=display_name,
+        base_url=base_url,
+        usage=usage,
+        make_default=_optional_bool(value.get("make_default"), default=True),
+        idempotency_key=idempotency_key,
+        open_message_id=_first_str(context.get("open_message_id")),
+        open_chat_id=_first_str(context.get("open_chat_id")),
+        card_update_token_ref=payload_ref,
+        operator_open_id=_first_str(operator.get("open_id")),
+        operator_user_id=_first_str(operator.get("user_id")),
+        operator_union_id=_first_str(operator.get("union_id")),
+    )
+
+
+def _extract_card_action_value(payload: dict[str, Any]) -> dict[str, Any]:
+    event = _payload_event(payload)
+    action = event.get("action")
+    if not isinstance(action, dict):
+        raise FeishuCallbackPayloadError("Feishu card action missing event.action")
+    return _coerce_action_value(action.get("value"))
+
+
+def _extract_card_form_values(payload: dict[str, Any]) -> dict[str, Any]:
+    event = _payload_event(payload)
+    action = event.get("action")
+    if not isinstance(action, dict):
+        return {}
+    candidates = [
+        action.get("form_value"),
+        action.get("form_values"),
+        action.get("input_value"),
+        action.get("value"),
+        event.get("form_value"),
+    ]
+    merged: dict[str, Any] = {}
+    for candidate in candidates:
+        form_value = _coerce_optional_mapping(candidate)
+        nested = _coerce_optional_mapping(form_value.get("form_value"))
+        if nested:
+            form_value = {**form_value, **nested}
+        for key, value in form_value.items():
+            if key not in merged:
+                merged[key] = value
+    return merged
+
+
 def _edited_payload_from_value(value: dict[str, Any]) -> dict[str, Any] | None:
     edited_payload = value.get("edited_payload")
     if isinstance(edited_payload, dict):
@@ -351,6 +482,57 @@ def _edited_payload_from_value(value: dict[str, Any]) -> dict[str, Any] | None:
     if isinstance(form_value, dict):
         return form_value
     return None
+
+
+def _form_value_str(form_values: dict[str, Any], name: str) -> str | None:
+    value = form_values.get(name)
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    if isinstance(value, dict):
+        for key in ("value", "text", "content"):
+            item = value.get(key)
+            if isinstance(item, str) and item.strip():
+                return item.strip()
+    return None
+
+
+def _default_model(provider: str) -> str:
+    if provider == "deepseek":
+        return "deepseek-v4-pro"
+    return "gpt-4.1-mini"
+
+
+def _optional_bool(value: Any, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y"}:
+            return True
+        if normalized in {"false", "0", "no", "n"}:
+            return False
+    raise FeishuCallbackPayloadError("Feishu model setup make_default is invalid")
+
+
+def _safe_optional_base_url(base_url: str | None) -> str | None:
+    if not base_url:
+        return None
+    try:
+        return validate_https_base_url(base_url, resolve_dns=False)
+    except BaseUrlSafetyError as exc:
+        raise FeishuCallbackPayloadError(f"Feishu model setup {exc}") from exc
+
+
+def _identity_type_str(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"open_id", "user_id", "union_id"}:
+        return normalized
+    raise FeishuCallbackPayloadError("Feishu model setup owner id type is invalid")
 
 
 def _secret_value(secret: SecretStr | None) -> str | None:
@@ -425,6 +607,18 @@ def _coerce_action_value(value: Any) -> dict[str, Any]:
         except json.JSONDecodeError as exc:
             raise FeishuCallbackPayloadError("Feishu card action value must be JSON") from exc
     raise FeishuCallbackPayloadError("Feishu card action value must be an object")
+
+
+def _coerce_optional_mapping(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
 
 
 def _required_str(payload: dict[str, Any], key: str) -> str:

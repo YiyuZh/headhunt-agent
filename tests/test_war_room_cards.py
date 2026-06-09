@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 from app.feishu.cards import build_agent_run_card, build_approval_card
 from app.schemas.artifacts import ArtifactRef
 from app.schemas.common import CouncilMode, MemoryScope
-from app.schemas.context import ContextPack
+from app.schemas.context import ContextPack, SOPRef
 from app.schemas.memory import MemoryRef
 
 
@@ -32,6 +32,21 @@ def test_agent_run_card_shows_mode_refs_and_not_raw_prompt() -> None:
         council_mode=CouncilMode.lite,
         mode_reason="常规任务",
         memory_refs=[memory],
+        sop_refs=[
+            SOPRef(
+                sop_id="artifact-review-gate",
+                version="0.1.0",
+                title="Artifact Review Gate",
+                scope="review.artifact_quality",
+                content_ref="sop://reviewers/artifact-review-gate/0.1.0",
+                summary="Review one artifact at a time.",
+                trigger_policy="always",
+                trigger_reason="matched artifact-producing agent node",
+                status="draft",
+                path="reviewers/artifact-review-gate.sop.md",
+                tokens_estimate=18,
+            )
+        ],
     )
 
     card = build_agent_run_card(
@@ -50,6 +65,8 @@ def test_agent_run_card_shows_mode_refs_and_not_raw_prompt() -> None:
     assert "lite" in content
     assert "artifact://opinion/1" in content
     assert "memory://run/1" in content
+    assert "artifact-review-gate@0.1.0" in content
+    assert "full SOP body" not in content
     assert "原始 prompt" not in content
 
 

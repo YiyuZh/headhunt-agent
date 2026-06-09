@@ -14,6 +14,7 @@ class ArtifactRef(BaseModel):
     content_ref: str
     evidence_refs: list[str] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)
+    pii_level: PiiLevel = PiiLevel.none
     version: int = 1
     size_tokens_estimate: int = 0
 

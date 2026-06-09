@@ -2,6 +2,8 @@ from typing import Any
 
 import httpx
 
+from app.gateways.url_safety import AddressResolver, BaseUrlSafetyError, validate_https_base_url
+
 
 class EmbeddingGatewayError(RuntimeError):
     pass
@@ -16,17 +18,19 @@ class OpenAIEmbeddingGateway:
         base_url: str = "https://api.openai.com",
         timeout_seconds: float = 30.0,
         client: httpx.Client | None = None,
+        base_url_resolver: AddressResolver | None = None,
     ):
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
+        self.base_url_resolver = base_url_resolver
         self.client = client or httpx.Client(timeout=timeout_seconds)
 
     def embed_texts(self, texts: list[str], purpose: str) -> list[list[float]]:
         if not texts:
             return []
         response = self.client.post(
-            f"{self.base_url}/v1/embeddings",
+            f"{self._safe_base_url()}/v1/embeddings",
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
@@ -41,6 +45,16 @@ class OpenAIEmbeddingGateway:
             raise EmbeddingGatewayError(f"OpenAI embeddings API error: HTTP {response.status_code}")
         payload = response.json()
         return _extract_embeddings(payload, expected_count=len(texts))
+
+    def _safe_base_url(self) -> str:
+        try:
+            return validate_https_base_url(
+                self.base_url,
+                trusted_public_hosts={"api.openai.com"},
+                resolver=self.base_url_resolver,
+            )
+        except BaseUrlSafetyError as exc:
+            raise EmbeddingGatewayError(f"Unsafe OpenAI embedding base_url: {exc}") from exc
 
 
 def _extract_embeddings(payload: dict[str, Any], *, expected_count: int) -> list[list[float]]:

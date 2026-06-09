@@ -2,7 +2,12 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from app.feishu.dispatcher import OutboxDispatchError
-from app.feishu.gateways import FeishuGatewayError, FeishuHttpBitableGateway, FeishuHttpGateway
+from app.feishu.gateways import (
+    BITABLE_BATCH_CREATE_MAX_RECORDS,
+    FeishuGatewayError,
+    FeishuHttpBitableGateway,
+    FeishuHttpGateway,
+)
 from app.runtime.outbox import RuntimeNotReadyError
 from app.storage.models import FeishuOutbox
 from app.storage.repositories import (
@@ -84,6 +89,11 @@ class FeishuOutboxHandler:
         records = payload.get("records")
         if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
             raise OutboxDispatchError("bitable_write payload.records must be a list of objects")
+        if not records or len(records) > BITABLE_BATCH_CREATE_MAX_RECORDS:
+            raise OutboxDispatchError(
+                "bitable_write payload.records must contain "
+                f"1-{BITABLE_BATCH_CREATE_MAX_RECORDS} objects"
+            )
         record_ids = self.bitable_gateway.batch_create(app_token, table_id, records, client_token)
         payload_hash = payload.get("payload_hash")
         entity_refs = payload.get("entity_refs")

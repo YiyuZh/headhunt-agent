@@ -124,7 +124,7 @@ source_refs
 飞书卡片：模型配置
 -> provider: openai / deepseek
 -> model_name
--> usage: chat / embedding
+-> usage: chat（当前飞书落地卡先开放 chat；embedding profile 是后续入口）
 -> display_name
 -> api_key
 -> optional base_url

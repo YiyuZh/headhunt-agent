@@ -138,7 +138,7 @@ class UserModelLLMGateway:
         profile_id = kwargs.get("model_profile_id")
         if profile_id is None:
             if self.fallback_gateway is None:
-                raise UserModelGatewayError("model_profile_id is required for Discord BYOK runtime")
+                raise UserModelGatewayError("model_profile_id is required for user BYOK runtime")
             return self.fallback_gateway.generate_structured(**kwargs)
         if not kwargs.get("model_guild_id") or not kwargs.get("model_owner_user_id"):
             raise UserModelGatewayError(

@@ -104,7 +104,7 @@ def build_llm_gateway(settings: Settings, *, session: Session | None = None):
             if fallback_gateway is not None:
                 return fallback_gateway
             raise RuntimeDependencyError(
-                "a database session is required for Discord BYOK model profiles"
+                "a database session is required for user BYOK model profiles"
             )
         return UserModelLLMGateway(
             factory=UserModelGatewayFactory(
@@ -119,7 +119,7 @@ def build_llm_gateway(settings: Settings, *, session: Session | None = None):
     if fallback_gateway is not None:
         return fallback_gateway
     raise RuntimeDependencyError(
-        "MODEL_SECRET_ENCRYPTION_KEY is required for Discord BYOK runtime; "
+        "MODEL_SECRET_ENCRYPTION_KEY is required for user BYOK runtime; "
         "LLM_PROVIDER/LLM_MODEL/LLM_API_KEY are only a local debug fallback"
     )
 

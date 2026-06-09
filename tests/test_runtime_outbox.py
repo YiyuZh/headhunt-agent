@@ -65,24 +65,24 @@ def test_feishu_payload_to_initial_state_extracts_text_without_full_payload() ->
 def test_graph_dispatch_payload_to_initial_state_preserves_model_profile_context() -> None:
     payload = {
         "thread_id": "2c035461-6b47-4b92-a982-7b7eac099c36",
-        "source": "discord",
-        "source_ref": "interaction-1",
+        "source": "feishu",
+        "source_ref": "message-1",
         "user_input": "请校准岗位需求",
         "task_type": "requisition_calibration",
         "model_profile_id": "4c035461-6b47-4b92-a982-7b7eac099c36",
-        "model_owner_user_id": "discord-user-1",
-        "model_guild_id": "discord-guild-1",
+        "model_owner_user_id": "feishu-user-1",
+        "model_guild_id": "feishu-chat-1",
         "model_tenant_id": "tenant-1",
     }
 
     state = feishu_payload_to_initial_state(payload)
 
-    assert state["source"] == "discord"
+    assert state["source"] == "feishu"
     assert state["thread_id"] == payload["thread_id"]
     assert state["user_input"] == "请校准岗位需求"
     assert state["model_profile_id"] == payload["model_profile_id"]
-    assert state["model_owner_user_id"] == "discord-user-1"
-    assert state["model_guild_id"] == "discord-guild-1"
+    assert state["model_owner_user_id"] == "feishu-user-1"
+    assert state["model_guild_id"] == "feishu-chat-1"
 
 
 def test_langgraph_outbox_handler_dispatches_to_real_graph_invoke() -> None:
@@ -95,13 +95,14 @@ def test_langgraph_outbox_handler_dispatches_to_real_graph_invoke() -> None:
 
     handler.dispatch_graph(
         {
-            "header": {"event_type": "im.message.receive_v1", "event_id": "evt_1"},
-            "event": {
-                "message": {
-                    "message_id": "om_1",
-                    "content": '{"text":"请为 AI 平台负责人岗位做人岗筛选"}',
-                }
-            },
+            "thread_id": "2c035461-6b47-4b92-a982-7b7eac099c36",
+            "source": "feishu",
+            "source_ref": "om_1",
+            "user_input": "请为 AI 平台负责人岗位做人岗筛选",
+            "task_type": "candidate_screening",
+            "model_profile_id": "4c035461-6b47-4b92-a982-7b7eac099c36",
+            "model_owner_user_id": "feishu-user-1",
+            "model_guild_id": "feishu-chat-1",
         }
     )
 
@@ -109,6 +110,27 @@ def test_langgraph_outbox_handler_dispatches_to_real_graph_invoke() -> None:
     assert state["user_input"] == "请为 AI 平台负责人岗位做人岗筛选"
     assert config["configurable"]["thread_id"] == state["thread_id"]
     assert handler.last_result["status"] == "ok"
+
+
+def test_langgraph_outbox_handler_blocks_raw_feishu_without_model_scope() -> None:
+    handler = LangGraphOutboxHandler(
+        graph=FakeGraph(),
+        use_postgres_checkpointer=False,
+        allow_minimal_runtime=True,
+    )
+
+    with pytest.raises(RuntimeNotReadyError, match="TaskIntakeParser"):
+        handler.dispatch_graph(
+            {
+                "header": {"event_type": "im.message.receive_v1", "event_id": "evt_1"},
+                "event": {
+                    "message": {
+                        "message_id": "om_1",
+                        "content": '{"text":"请为 AI 平台负责人岗位做人岗筛选"}',
+                    }
+                },
+            }
+        )
 
 
 def test_langgraph_outbox_handler_does_not_fake_dispatch_success_by_default() -> None:
@@ -125,7 +147,17 @@ def test_langgraph_outbox_handler_dispatches_when_factory_has_real_harness() -> 
         use_postgres_checkpointer=False,
     )
 
-    handler.dispatch_graph({"event": {"message": {"message_id": "om_1", "content": "hello"}}})
+    handler.dispatch_graph(
+        {
+            "thread_id": "2c035461-6b47-4b92-a982-7b7eac099c36",
+            "source": "feishu",
+            "source_ref": "om_1",
+            "user_input": "hello",
+            "model_profile_id": "4c035461-6b47-4b92-a982-7b7eac099c36",
+            "model_owner_user_id": "feishu-user-1",
+            "model_guild_id": "feishu-chat-1",
+        }
+    )
 
     assert factory.graph.calls[0][0]["source_ref"] == "om_1"
 

@@ -6,6 +6,7 @@ from uuid import UUID
 
 import httpx
 
+from app.gateways.url_safety import AddressResolver, BaseUrlSafetyError, validate_https_base_url
 from app.schemas.context import ContextPack
 
 
@@ -57,10 +58,12 @@ class OpenAIResponsesLLMGateway:
         client: httpx.Client | None = None,
         model_profile_id: UUID | None = None,
         model_owner_user_id: str | None = None,
+        base_url_resolver: AddressResolver | None = None,
     ):
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
+        self.base_url_resolver = base_url_resolver
         self.timeout_seconds = timeout_seconds
         self.client = client or httpx.Client(timeout=timeout_seconds)
         self._model_info = LLMModelInfo(
@@ -85,7 +88,7 @@ class OpenAIResponsesLLMGateway:
     ) -> dict[str, Any]:
         strict_schema = to_openai_strict_json_schema(output_schema)
         response = self.client.post(
-            f"{self.base_url}/v1/responses",
+            f"{self._safe_base_url()}/v1/responses",
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
@@ -138,6 +141,16 @@ class OpenAIResponsesLLMGateway:
     ) -> LLMModelInfo:
         return self._model_info
 
+    def _safe_base_url(self) -> str:
+        try:
+            return validate_https_base_url(
+                self.base_url,
+                trusted_public_hosts={"api.openai.com"},
+                resolver=self.base_url_resolver,
+            )
+        except BaseUrlSafetyError as exc:
+            raise LLMGatewayError(f"Unsafe OpenAI base_url: {exc}") from exc
+
 
 class DeepSeekChatCompletionsLLMGateway:
     def __init__(
@@ -152,10 +165,12 @@ class DeepSeekChatCompletionsLLMGateway:
         client: httpx.Client | None = None,
         model_profile_id: UUID | None = None,
         model_owner_user_id: str | None = None,
+        base_url_resolver: AddressResolver | None = None,
     ):
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
+        self.base_url_resolver = base_url_resolver
         self.thinking = thinking
         self.reasoning_effort = reasoning_effort
         self.client = client or httpx.Client(timeout=timeout_seconds)
@@ -213,7 +228,7 @@ class DeepSeekChatCompletionsLLMGateway:
             body["thinking"] = {"type": self.thinking}
 
         response = self.client.post(
-            f"{self.base_url}/chat/completions",
+            f"{self._safe_base_url()}/chat/completions",
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
@@ -235,6 +250,16 @@ class DeepSeekChatCompletionsLLMGateway:
         model_tenant_id: str | None = None,
     ) -> LLMModelInfo:
         return self._model_info
+
+    def _safe_base_url(self) -> str:
+        try:
+            return validate_https_base_url(
+                self.base_url,
+                trusted_public_hosts={"api.deepseek.com"},
+                resolver=self.base_url_resolver,
+            )
+        except BaseUrlSafetyError as exc:
+            raise LLMGatewayError(f"Unsafe DeepSeek base_url: {exc}") from exc
 
 
 def get_gateway_model_info(

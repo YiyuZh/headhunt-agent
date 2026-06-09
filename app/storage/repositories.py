@@ -164,6 +164,7 @@ class FeishuEventRepository:
         payload_hash: str,
         payload_ref: str,
         outbox_kind: str,
+        outbox_payload_ref: str | None = None,
         tenant_key: str | None = None,
         app_id: str | None = None,
         message_id: str | None = None,
@@ -189,13 +190,104 @@ class FeishuEventRepository:
                     kind=outbox_kind,
                     idempotency_key=idempotency_key,
                     thread_id=thread_id,
-                    payload_ref=payload_ref,
+                    payload_ref=outbox_payload_ref or payload_ref,
                     status="pending",
                 )
             )
         except IntegrityError as exc:
             if _is_unique_violation(exc):
                 raise DuplicateEventError(str(exc)) from exc
+            raise
+
+
+class FeishuTaskConfirmationRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def record_confirmation(
+        self,
+        *,
+        event_id: str,
+        thread_id: UUID,
+        task_id: UUID,
+        idempotency_key: str,
+        open_message_id: str | None,
+        open_chat_id: str | None,
+        card_update_token_ref: str,
+        operator_open_id: str | None,
+        decision: str,
+        status: str,
+    ) -> None:
+        try:
+            self.session.execute(
+                insert(FeishuCardAction).values(
+                    event_id=event_id,
+                    thread_id=thread_id,
+                    action_id=task_id,
+                    interrupt_id=None,
+                    idempotency_key=idempotency_key,
+                    open_message_id=open_message_id,
+                    open_chat_id=open_chat_id,
+                    card_update_token_ref=card_update_token_ref,
+                    operator_open_id=operator_open_id,
+                    decision=decision,
+                    edited_payload_ref=None,
+                    status=status,
+                )
+            )
+        except IntegrityError as exc:
+            if _is_unique_violation(exc):
+                raise DuplicateCardActionError(str(exc)) from exc
+            raise
+
+
+class FeishuModelSetupRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def is_duplicate(self, idempotency_key: str) -> bool:
+        return (
+            self.session.execute(
+                select(FeishuCardAction.id).where(
+                    FeishuCardAction.idempotency_key == idempotency_key
+                )
+            ).first()
+            is not None
+        )
+
+    def record_setup(
+        self,
+        *,
+        event_id: str,
+        thread_id: UUID,
+        profile_id: UUID,
+        idempotency_key: str,
+        open_message_id: str | None,
+        open_chat_id: str | None,
+        card_update_token_ref: str,
+        operator_open_id: str | None,
+        payload_ref: str,
+    ) -> None:
+        try:
+            self.session.execute(
+                insert(FeishuCardAction).values(
+                    event_id=event_id,
+                    thread_id=thread_id,
+                    action_id=profile_id,
+                    interrupt_id=None,
+                    idempotency_key=idempotency_key,
+                    open_message_id=open_message_id,
+                    open_chat_id=open_chat_id,
+                    card_update_token_ref=card_update_token_ref,
+                    operator_open_id=operator_open_id,
+                    decision="approve",
+                    edited_payload_ref=payload_ref,
+                    status="received",
+                )
+            )
+        except IntegrityError as exc:
+            if _is_unique_violation(exc):
+                raise DuplicateCardActionError(str(exc)) from exc
             raise
 
 

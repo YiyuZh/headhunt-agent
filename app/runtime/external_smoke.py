@@ -240,7 +240,7 @@ def _run_deepseek_check(settings: Settings, client: httpx.Client | None) -> Exte
     if not settings.deepseek_api_key:
         return _skipped(
             "deepseek_llm",
-            "DEEPSEEK_API_KEY is not set. Discord BYOK user profiles are tested separately.",
+            "DEEPSEEK_API_KEY is not set. User BYOK profiles are tested separately.",
         )
     try:
         result = DeepSeekChatCompletionsLLMGateway(

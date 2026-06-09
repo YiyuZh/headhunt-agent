@@ -58,3 +58,19 @@ def test_openai_embedding_gateway_rejects_wrong_response_length() -> None:
 
     with pytest.raises(EmbeddingGatewayError):
         gateway.embed_texts(["a"], purpose="memory_update")
+
+
+def test_openai_embedding_gateway_rejects_custom_base_url_resolving_private_ip() -> None:
+    client = FakeHttpClient(FakeHttpResponse({"data": []}))
+    gateway = OpenAIEmbeddingGateway(
+        api_key="sk-test",
+        model="text-embedding-3-small",
+        base_url="https://embeddings.example.com",
+        client=client,
+        base_url_resolver=lambda hostname: ["172.16.0.10"],
+    )
+
+    with pytest.raises(EmbeddingGatewayError, match="Unsafe OpenAI embedding base_url"):
+        gateway.embed_texts(["a"], purpose="memory_update")
+
+    assert client.posts == []

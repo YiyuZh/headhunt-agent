@@ -15,6 +15,7 @@ from app.schemas.artifacts import AgentArtifact, ArtifactRef
 from app.schemas.common import MemoryScope, MemoryStatus
 from app.schemas.context import BudgetRemaining, ContextPack
 from app.schemas.memory import MemoryItem
+from app.sops.registry import AgentSOPRegistry
 from app.storage.models import AgentRun, ArtifactBlob, GraphThread
 
 
@@ -28,6 +29,7 @@ class AgentHarness:
         artifact_store: PostgresArtifactStore | None = None,
         context_builder: ContextPackBuilder | None = None,
         war_room_notifier: WarRoomNotifier | None = None,
+        sop_registry: AgentSOPRegistry | None = None,
     ):
         self.session = session
         self.llm_gateway = llm_gateway
@@ -35,6 +37,7 @@ class AgentHarness:
         self.artifact_store = artifact_store or PostgresArtifactStore(session)
         self.context_builder = context_builder or ContextPackBuilder()
         self.war_room_notifier = war_room_notifier
+        self.sop_registry = sop_registry or AgentSOPRegistry.from_default_repo()
 
     def build_context_pack(self, task: AgentTask) -> ContextPack:
         policy = task.policy
@@ -48,10 +51,18 @@ class AgentHarness:
             max_tokens=policy.max_context_tokens,
             policy=policy.model_dump(mode="json"),
         )
+        sop_refs = self.sop_registry.resolve(
+            agent_name=task.agent_name,
+            node_name=task.node_name,
+            task_type=task.task_type,
+            output_artifact_type=task.output_artifact_type,
+            policy=policy.model_dump(mode="json"),
+        )
         tokens_estimate = _estimate_context_tokens(
             task_brief=task.task_brief,
             artifact_refs=task.artifact_refs,
             memory_refs=memory_refs,
+            sop_refs=sop_refs,
             source_refs=task.source_refs,
         )
         return self.context_builder.build(
@@ -64,6 +75,7 @@ class AgentHarness:
                 mode_reason=task.mode_reason,
                 artifact_refs=task.artifact_refs,
                 memory_refs=memory_refs,
+                sop_refs=sop_refs,
                 source_refs=task.source_refs,
                 budget_remaining=BudgetRemaining(
                     max_context_tokens=policy.max_context_tokens,
@@ -71,7 +83,8 @@ class AgentHarness:
                 ),
                 excluded_context_reason=[
                     "full chat history, raw RecruitmentState, node_history, AgentRuns, "
-                    "full artifacts, and all long-term memories are excluded by allowlist"
+                    "full artifacts, full SOP documents, and all long-term memories are excluded "
+                    "by allowlist"
                 ],
             )
         )
@@ -234,6 +247,7 @@ class AgentHarness:
             content_ref=content_ref,
             evidence_refs=output.evidence_refs,
             source_refs=output.source_refs,
+            pii_level=output.pii_level,
             version=1,
             size_tokens_estimate=artifact.size_tokens_estimate,
         )
@@ -299,12 +313,14 @@ def _estimate_context_tokens(
     task_brief: str,
     artifact_refs: list[ArtifactRef],
     memory_refs: list,
+    sop_refs: list,
     source_refs: list[str],
 ) -> int:
     return (
         _estimate_text_tokens(task_brief)
         + sum(item.size_tokens_estimate for item in artifact_refs)
         + sum(item.tokens_estimate for item in memory_refs)
+        + sum(item.tokens_estimate for item in sop_refs)
         + sum(_estimate_text_tokens(item) for item in source_refs)
     )
 

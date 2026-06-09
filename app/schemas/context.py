@@ -29,6 +29,7 @@ class ContextPack(BaseModel):
     mode_reason: str
     artifact_refs: list[ArtifactRef] = Field(default_factory=list)
     memory_refs: list[MemoryRef] = Field(default_factory=list)
+    sop_refs: list["SOPRef"] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)
     budget_remaining: "BudgetRemaining" = Field(default_factory=lambda: BudgetRemaining())
     excluded_context_reason: list[str] = Field(default_factory=list)
@@ -50,3 +51,19 @@ class BudgetRemaining(BaseModel):
     estimated_context_tokens: int = Field(default=0, ge=0)
     max_tool_calls: int | None = Field(default=None, ge=0)
     used_tool_calls: int | None = Field(default=None, ge=0)
+
+
+class SOPRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sop_id: str
+    version: str
+    title: str
+    scope: str
+    content_ref: str
+    summary: str
+    trigger_policy: str
+    trigger_reason: str
+    status: str
+    path: str | None = None
+    tokens_estimate: int = Field(default=0, ge=0)

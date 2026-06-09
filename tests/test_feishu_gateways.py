@@ -240,6 +240,24 @@ def test_bitable_batch_create_requires_uuid4_client_token() -> None:
     assert transport.requests == []
 
 
+def test_bitable_batch_create_rejects_empty_or_oversized_batches() -> None:
+    transport = RecordingTransport([])
+    client = make_client(transport)
+    auth = FeishuAuthProvider(settings=make_settings(), client=client)
+    gateway = FeishuHttpBitableGateway(auth_provider=auth, client=client)
+
+    for records in ([], [{"fields": {"name": str(index)}} for index in range(1001)]):
+        with pytest.raises(FeishuGatewayError, match="1-1000"):
+            gateway.batch_create(
+                app_token="app_token",
+                table_id="tbl_1",
+                records=records,
+                client_token="fe599b60-450f-46ff-b2ef-9f6675625b97",
+            )
+
+    assert transport.requests == []
+
+
 def test_bitable_search_records_uses_read_only_search_api() -> None:
     transport = RecordingTransport(
         [
