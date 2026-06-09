@@ -4,15 +4,16 @@
   "repo_root": "<repo-root>",
   "known_clone_roots": {
     "windows_current": "D:/apps/headhunt-agent",
+    "linux_server": "/opt/apps/headhunt-agent",
     "mac_linux_legacy": "/Users/w/Documents/lietou"
   },
   "github_repository": "https://github.com/YiyuZh/headhunt-agent",
   "source_of_truth_branch": "main",
-  "latest_synced_commit": "60685bbf7c7084c52c1166a92dbfb2404e5227b3",
-  "remote_main_commit": "60685bbf7c7084c52c1166a92dbfb2404e5227b3",
-  "generated_at": "2026-06-09T12:06:53+08:00",
+  "latest_synced_commit": "2f6d6b514d7a357fbe840e9602420ebcad776101",
+  "remote_main_commit": "2f6d6b514d7a357fbe840e9602420ebcad776101",
+  "generated_at": "2026-06-09T14:05:40+08:00",
   "file_count": 190,
-  "current_stage": "Feishu First runtime with local one-click preflight/start wrappers. PostgreSQL/pgvector remains the primary database and memory base. Feishu events and card.action.trigger callbacks now share the Encrypt Key signature/decrypt/token path; legacy SHA1 card signatures are rejected. Local doctor can initialize .env, generate local runtime secrets without printing them, and now reports OS-appropriate one-click commands: scripts/lietou-oneclick.sh for Linux servers and scripts/lietou-oneclick.ps1 for Windows users. User BYOK model profiles, AgentSOPRegistry, memory retention, ReviewGate, and query-path indexes are implemented locally; real Feishu/Bitable/model/Docker end-to-end validation remains environment-dependent.",
+  "current_stage": "Feishu First runtime with local one-click preflight/start wrappers and a cloud-server deployment runbook localized for headhunt.zenithy.art. PostgreSQL/pgvector remains the primary database and memory base. Feishu events and card.action.trigger callbacks now share the Encrypt Key signature/decrypt/token path; legacy SHA1 card signatures are rejected. Local doctor can initialize .env, generate local runtime secrets without printing them, and reports OS-appropriate one-click commands: scripts/lietou-oneclick.sh for Linux servers and scripts/lietou-oneclick.ps1 for Windows users. User BYOK model profiles, AgentSOPRegistry, memory retention, ReviewGate, and query-path indexes are implemented locally; real Feishu/Bitable/model/Linux server/Docker start validation remains environment-dependent.",
   "reading_order": [
     "任务记忆文档.md",
     "项目文件索引.md",
@@ -68,6 +69,32 @@
     "lietou-postgres-smoke": "app.runtime.postgres_smoke:main",
     "scripts/lietou-oneclick.sh": "Linux/POSIX shell wrapper: init/generate/check via local_doctor; --start gates on strict doctor then runs docker compose up -d --build.",
     "scripts/lietou-oneclick.ps1": "Windows PowerShell wrapper: init/generate/check via local_doctor; -Start gates on strict doctor then runs docker compose up -d --build."
+  },
+  "deployment_runbook": {
+    "primary_manual": "docs/manual/本地部署与使用手册.md",
+    "domain": "headhunt.zenithy.art",
+    "server_repo_root": "/opt/apps/headhunt-agent",
+    "server_ipv4": "140.143.119.81",
+    "server_ipv6": "2402:4e00:c050:7300:c4d8:33c6:74f2:0",
+    "server_instance": {
+      "name": "Docker CE-8b5w",
+      "id": "lhins-jg4o0aj0",
+      "region": "Beijing / Beijing Zone 7",
+      "cpu": "2 cores",
+      "memory": "2GB",
+      "disk": "40GB SSD",
+      "bandwidth": "3Mbps"
+    },
+    "github_ssh_alias": "github.com-headhunt-agent",
+    "deploy_key_private_key": "~/.ssh/id_ed25519_headhunt_agent",
+    "clone_command": "git clone git@github.com-headhunt-agent:YiyuZh/headhunt-agent.git /opt/apps/headhunt-agent",
+    "default_gateway_mode": "project Caddy directly binds 80/443; use the manual's unified-gateway branch only when an existing server gateway is confirmed.",
+    "backup_root": "/opt/apps/backups/releases/$RELEASE_ID/headhunt-agent",
+    "destructive_volume_delete": "forbidden: do not use docker compose down -v",
+    "synced_docs": [
+      "README.md",
+      "docs/manual/飞书接入操作手册.md"
+    ]
   },
   "important_files": {
     "root": [
@@ -251,13 +278,14 @@
     "preserved_indexes": "Existing pgvector HNSW, outbox lease, BYOK profile, and memory scope indexes were preserved."
   },
   "verification_status": {
-    "git_sync": "verified base: local HEAD is 60685bbf7c7084c52c1166a92dbfb2404e5227b3; origin/main observed as 60685bbf7c7084c52c1166a92dbfb2404e5227b3",
+    "git_sync": "verified base: local HEAD is 2f6d6b514d7a357fbe840e9602420ebcad776101; origin/main observed as 2f6d6b514d7a357fbe840e9602420ebcad776101",
   "file_inventory": "verified: rg --files reports 190 files",
+  "cloud_server_runbook": "updated: docs/manual/本地部署与使用手册.md now includes the headhunt.zenithy.art variable card, GitHub Deploy Key SSH alias flow, DNS/Caddy gateway modes, pre-release backups, business smoke, rollback, and troubleshooting; README.md and docs/manual/飞书接入操作手册.md are synced to the same domain and /opt/apps/headhunt-agent server path. Real Linux server start, Feishu callback save, card click/update, Bitable write, and model calls remain unverified until deployment.",
   "local_doctor": "verified: .venv\\Scripts\\python.exe -m pytest tests\\test_local_doctor.py -q passed with 8 passed and covers Windows/POSIX one-click command hints; .venv\\Scripts\\python.exe -m ruff check app\\runtime\\local_doctor.py tests\\test_local_doctor.py --no-cache passed; .venv\\Scripts\\python.exe -m app.runtime.local_doctor --skip-docker reports oneclick preflight/start commands; PowerShell parser accepted scripts\\lietou-oneclick.ps1; D:\\Git\\usr\\bin\\sh.exe -n scripts/lietou-oneclick.sh passed; sh scripts\\lietou-oneclick.sh --no-init --skip-docker --doctor-only --python .venv/Scripts/python.exe exits 0 and reports not_ready without creating .env or printing secrets because .env is absent on this machine",
-    "json_index": "verified: .venv\\Scripts\\python.exe -m json.tool 项目文件索引.json passed after regeneration",
+    "json_index": "verified: .venv\\Scripts\\python.exe -m json.tool 项目文件索引.json passed after cloud-server runbook update",
     "focused_feishu_callbacks": "verified: .venv\\Scripts\\python.exe -m pytest tests\\test_feishu_callbacks.py -q passed with 19 passed, 1 warning",
     "focused_feishu_stack": "verified: .venv\\Scripts\\python.exe -m pytest tests\\test_feishu_callbacks.py tests\\test_feishu_service.py tests\\test_feishu_outbox_handlers.py tests\\test_feishu_task_intake.py tests\\test_feishu_gateways.py tests\\test_feishu_dispatcher.py -q passed with 53 passed, 2 warnings",
-  "pytest": "verified: .venv\\Scripts\\python.exe -m pytest -q passed with 251 passed, 2 warnings",
+  "pytest": "verified: .venv\\Scripts\\python.exe -m pytest -q passed with 252 passed, 2 warnings",
     "ruff": "verified: .venv\\Scripts\\python.exe -m ruff check app tests --no-cache passed",
     "alembic_offline_sql": "verified: .venv\\Scripts\\alembic.exe upgrade head --sql passed and includes 20260607_0004",
     "config_check_strict": "verified expected failure: .venv\\Scripts\\python.exe -m app.runtime.config_check --strict exits 1 with status not_ready because required env vars and real Feishu/Bitable/model integration are missing; implementation checks are ok",
