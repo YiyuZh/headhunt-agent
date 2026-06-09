@@ -70,6 +70,12 @@ services:
         condition: service_healthy
     expose:
       - "8000"
+    networks:
+      default:
+      shared_gateway:
+        aliases:
+          - lietou-api
+          - headhunt-api
     healthcheck:
       test:
         [
@@ -128,6 +134,8 @@ services:
   caddy:
     image: caddy:2-alpine
     container_name: lietou-caddy
+    profiles:
+      - standalone
     restart: unless-stopped
     environment:
       DOMAIN: ${DOMAIN:-localhost}
@@ -151,3 +159,8 @@ volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+
+networks:
+  shared_gateway:
+    external: true
+    name: ${SHARED_CADDY_NETWORK:-shared_gateway}
