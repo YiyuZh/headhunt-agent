@@ -53,6 +53,7 @@ class FeishuTaskIntake:
 
 
 def parse_task_intake(payload: dict[str, Any], *, tenant_key: str | None) -> FeishuTaskIntake:
+    header = payload.get("header") if isinstance(payload.get("header"), dict) else {}
     event = payload.get("event")
     if not isinstance(event, dict):
         raise ValueError("Feishu task intake requires event payload")
@@ -66,8 +67,12 @@ def parse_task_intake(payload: dict[str, Any], *, tenant_key: str | None) -> Fei
 
     message_id = _first_str(message.get("message_id"), event.get("message_id"))
     request_text = _extract_message_text(message).strip()
+    resolved_tenant_key = tenant_key or _first_str(
+        header.get("tenant_key"),
+        event.get("tenant_key"),
+    )
     source_ref = _source_ref(
-        tenant_key=tenant_key,
+        tenant_key=resolved_tenant_key,
         chat_id=chat_id,
         message_id=message_id,
         request_text=request_text,
@@ -93,7 +98,7 @@ def parse_task_intake(payload: dict[str, Any], *, tenant_key: str | None) -> Fei
         source_ref=source_ref,
         thread_id=thread_id,
         task_id=task_id,
-        tenant_key=tenant_key,
+        tenant_key=resolved_tenant_key,
         message_id=message_id,
         sender_open_id=_first_str(sender_id.get("open_id")),
         sender_user_id=_first_str(sender_id.get("user_id")),
@@ -129,7 +134,7 @@ def parse_task_intake_with_llm(
         context_pack=_task_intake_context_pack(intake),
         output_schema=TASK_INTAKE_OUTPUT_SCHEMA,
         schema_name="feishu_task_intake",
-        max_output_tokens=1200,
+        max_output_tokens=2400,
         model_profile_id=model_profile_id,
         model_owner_user_id=intake.model_owner_user_id,
         model_guild_id=intake.model_guild_id,
@@ -219,6 +224,41 @@ def task_confirmation_card_ref(thread_id: UUID, task_id: UUID) -> str:
     return f"artifact://feishu-card/task-confirmation/{thread_id}/{task_id}/v1"
 
 
+def task_parse_failed_card_ref(source_ref: str, model_profile_id: UUID) -> str:
+    ref_id = uuid5(NAMESPACE_URL, f"{source_ref}:{model_profile_id}")
+    return f"artifact://feishu-card/task-parse-failed/{ref_id}"
+
+
+def task_confirmation_prepare_ref(source_ref: str, model_profile_id: UUID) -> str:
+    ref_id = uuid5(NAMESPACE_URL, f"{source_ref}:{model_profile_id}")
+    return f"artifact://feishu-task-confirmation-prepare/{ref_id}"
+
+
+def build_task_confirmation_prepare_payload(
+    *,
+    chat_id: str,
+    event_payload_ref: str,
+    model_profile_id: UUID,
+    source_ref: str,
+    tenant_key: str | None,
+    model_owner_user_id: str | None,
+    model_owner_id_type: str | None,
+    model_guild_id: str,
+    thread_id: UUID,
+) -> dict[str, Any]:
+    return {
+        "chat_id": chat_id,
+        "event_payload_ref": event_payload_ref,
+        "model_profile_id": str(model_profile_id),
+        "source_ref": source_ref,
+        "tenant_key": tenant_key,
+        "model_owner_user_id": model_owner_user_id,
+        "model_owner_id_type": model_owner_id_type,
+        "model_guild_id": model_guild_id,
+        "thread_id": str(thread_id),
+    }
+
+
 def model_setup_card_ref(source_ref: str) -> str:
     return f"artifact://feishu-card/model-setup/{uuid5(NAMESPACE_URL, source_ref)}"
 
@@ -289,6 +329,14 @@ def _task_intake_context_pack(intake: FeishuTaskIntake) -> ContextPack:
         task_brief=(
             "把飞书群里的猎头任务自然语言解析为结构化字段，供人工确认后再启动执行。"
             "不要照抄原文；无法确定的字段留空字符串或空数组，并写入 missing_fields。"
+            "必须输出 json 对象，不要输出 markdown。"
+            "\n\n示例 json："
+            '{"task":"新建岗位","project":"北京 AI 产品经理","role":"AI 产品经理",'
+            '"location":"北京","level_years":"5-8 年","compensation":"40-70K",'
+            '"job_description":"负责 AI 产品规划","must_have":["AI 产品经验"],'
+            '"nice_to_have":["Agent 产品经验"],"target_companies":["字节"],'
+            '"excluded_companies":[],"deliverables":["岗位校准"],'
+            '"constraints":["所有动作先确认"],"missing_fields":[],"assumptions":[],"confidence":0.86}'
             f"\n\n原始任务：\n{intake.request_text}"
         ),
         node_goal=(

@@ -80,7 +80,7 @@ class FakeSession:
         self.flushed += 1
 
 
-def test_feishu_event_enqueues_task_confirmation_card_not_graph_dispatch() -> None:
+def test_feishu_event_enqueues_task_confirmation_prepare_not_sync_llm() -> None:
     profile = FakeProfile()
     session = FakeSession(select_results=[profile])
     callback = _message_callback()
@@ -94,17 +94,17 @@ def test_feishu_event_enqueues_task_confirmation_card_not_graph_dispatch() -> No
         tenant_key=callback.tenant_key,
     ).thread_id
     assert graph_thread["task_type"] == "task_intake"
-    assert graph_thread["state_summary"]["authorization_status"] == (
-        "pending_task_confirmation"
-    )
+    assert graph_thread["state_summary"]["authorization_status"] == "pending_task_parse"
     outbox_params = _insert_params_for_table(session, "feishu_outbox")
-    assert outbox_params["kind"] == "card_send"
-    assert outbox_params["payload_ref"].startswith("artifact://feishu-card/task-confirmation/")
-    card_payloads = _artifact_payloads(session, title="请确认猎头任务")
-    assert card_payloads[0]["chat_id"] == "oc_1"
-    assert card_payloads[0]["card"]["body"]["elements"][1]["behaviors"][0]["value"][
-        "action_kind"
-    ] == "task_double_check"
+    assert outbox_params["kind"] == "task_confirmation_prepare"
+    assert outbox_params["payload_ref"].startswith(
+        "artifact://feishu-task-confirmation-prepare/"
+    )
+    prepare_payload = _artifact_payload_for_ref(session, outbox_params["payload_ref"])
+    assert prepare_payload["chat_id"] == "oc_1"
+    assert prepare_payload["event_payload_ref"].startswith("artifact://feishu-callback/")
+    assert prepare_payload["model_profile_id"] == str(profile.id)
+    assert not _artifact_payloads(session, title="请确认猎头任务")
 
 
 def _legacy_feishu_event_without_default_model_sends_setup_card_only() -> None:
@@ -228,10 +228,16 @@ def test_model_setup_card_saves_profile_redacts_secret_and_continues_task_flow()
     assert session.added[0].encrypted_api_key
     assert "sk-user-secret" not in session.added[0].encrypted_api_key
     outbox_params = _insert_params_for_table(session, "feishu_outbox")
-    assert outbox_params["kind"] == "card_send"
-    assert outbox_params["payload_ref"].startswith("artifact://feishu-card/task-confirmation/")
+    assert outbox_params["kind"] == "task_confirmation_prepare"
+    assert outbox_params["payload_ref"].startswith(
+        "artifact://feishu-task-confirmation-prepare/"
+    )
     outbox_items = _insert_params_for_table_all(session, "feishu_outbox")
-    assert [item["kind"] for item in outbox_items] == ["card_send", "card_update"]
+    assert [item["kind"] for item in outbox_items] == [
+        "task_confirmation_prepare",
+        "card_update",
+    ]
+    assert result.message == "模型已保存，正在解析任务，确认卡稍后发送。"
     update_payloads = [
         _params(statement)["content_json"]
         for statement in session.executed
@@ -455,6 +461,19 @@ def _artifact_payloads(session: FakeSession, *, title: str) -> list[dict]:
         ).get("content") == title:
             payloads.append(payload)
     return payloads
+
+
+def _artifact_payload_for_ref(session: FakeSession, content_ref: str) -> dict:
+    for statement in session.executed:
+        table = getattr(statement, "table", None)
+        if getattr(table, "name", None) != "artifact_blobs":
+            continue
+        params = _params(statement)
+        if params.get("content_ref") == content_ref:
+            payload = params.get("content_json")
+            if isinstance(payload, dict):
+                return payload
+    raise AssertionError(f"No artifact payload captured for {content_ref}")
 
 
 def _card_action_values(card: dict) -> list[dict]:

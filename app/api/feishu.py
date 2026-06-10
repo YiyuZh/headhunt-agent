@@ -85,7 +85,7 @@ async def receive_feishu_card_action(
         return {
             "toast": {
                 "type": "info",
-                "content": result.message or "模型已保存并设为默认，已继续发送任务确认卡",
+                "content": result.message or "模型已保存，正在解析任务，确认卡稍后发送。",
             }
         }
     if result.status == "model_setup_failed":

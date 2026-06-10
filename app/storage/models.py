@@ -525,7 +525,10 @@ class FeishuOutbox(TimestampMixin, Base):
 
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('graph_dispatch','card_send','card_update','bitable_write','resume')",
+            "kind IN ("
+            "'graph_dispatch','card_send','card_update','bitable_write','resume',"
+            "'task_confirmation_prepare'"
+            ")",
             name="ck_feishu_outbox_kind",
         ),
         CheckConstraint(

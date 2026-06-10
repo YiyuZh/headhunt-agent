@@ -1,11 +1,15 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import uuid4
 
 import pytest
 
+from app.core.config import Settings
 from app.feishu.dispatcher import OutboxDispatchError
 from app.feishu.gateways import FeishuRateLimitError
-from app.feishu.outbox_handlers import FeishuOutboxHandler
+from app.feishu.outbox_handlers import FeishuOutboxHandler, FeishuTaskConfirmationPrepareHandler
+from app.feishu.task_intake import build_task_confirmation_prepare_payload, parse_task_intake
+from app.gateways.llm import LLMGatewayError
+from app.model_profiles.secrets import ModelSecretService
 from app.runtime.outbox import RuntimeNotReadyError
 
 
@@ -20,9 +24,22 @@ class FakeOutbox:
 class FakePayloadRepository:
     def __init__(self, payloads):
         self.payloads = payloads
+        self.stored = []
 
     def get_json_payload(self, content_ref: str) -> dict:
         return self.payloads[content_ref]
+
+    def store_json_payload(self, *, content_ref: str, payload: dict, raw_text: str, sha256: str):
+        self.payloads[content_ref] = payload
+        self.stored.append(
+            {
+                "content_ref": content_ref,
+                "payload": payload,
+                "raw_text": raw_text,
+                "sha256": sha256,
+            }
+        )
+        return content_ref
 
 
 class FakeFeishuGateway:
@@ -81,6 +98,34 @@ class FakeGraphHandler:
         self.resumed.append(payload)
 
 
+class FakeOutboxWriter:
+    def __init__(self):
+        self.enqueued = []
+
+    def enqueue_json(self, **kwargs) -> str:
+        self.enqueued.append(kwargs)
+        return kwargs.get("content_ref") or "artifact://fake-outbox"
+
+
+class FakeModelProfile:
+    def __init__(self, *, profile_id, encrypted_api_key):
+        self.id = profile_id
+        self.provider = "deepseek"
+        self.model_name = "deepseek-v4-pro"
+        self.base_url = "https://api.deepseek.com"
+        self.user_id = "ou_1"
+        self.encrypted_api_key = encrypted_api_key
+        self.tenant_id = "tenant_1"
+
+
+class FakeModelProfileRepository:
+    def __init__(self, profile):
+        self.profile = profile
+
+    def get_active_profile(self, **kwargs):
+        return self.profile
+
+
 class NotReadyGraphHandler:
     def dispatch_graph(self, payload: dict) -> None:
         raise RuntimeNotReadyError("runtime not ready", retry_after_seconds=300)
@@ -132,6 +177,162 @@ def test_outbox_handler_updates_card_from_payload() -> None:
     )
 
     assert gateway.updated_cards == [("om_1", {"elements": []}, "card-update-1")]
+
+
+def test_outbox_handler_routes_task_confirmation_prepare_to_preparer() -> None:
+    class FakePreparer:
+        def __init__(self):
+            self.calls = []
+
+        def prepare_task_confirmation(self, payload, *, idempotency_key):
+            self.calls.append((payload, idempotency_key))
+
+    preparer = FakePreparer()
+    payload = {"chat_id": "oc_1"}
+    handler = FeishuOutboxHandler(
+        payload_repository=FakePayloadRepository({"artifact://prepare": payload}),
+        feishu_gateway=FakeFeishuGateway(),
+        bitable_gateway=FakeBitableGateway(),
+        task_confirmation_preparer=preparer,
+    )
+
+    handler.handle(
+        FakeOutbox(
+            kind="task_confirmation_prepare",
+            payload_ref="artifact://prepare",
+            idempotency_key="prepare-1",
+        )
+    )
+
+    assert preparer.calls == [(payload, "prepare-1")]
+
+
+def test_task_confirmation_prepare_success_enqueues_structured_confirmation_card(
+    monkeypatch,
+) -> None:
+    event_payload = _message_event_payload()
+    intake = parse_task_intake(event_payload, tenant_key="tenant_1")
+    model_profile_id = uuid4()
+    payload_repository = FakePayloadRepository({"artifact://event": event_payload})
+    outbox_writer = FakeOutboxWriter()
+    profile = FakeModelProfile(
+        profile_id=model_profile_id,
+        encrypted_api_key=ModelSecretService("test-model-secret").encrypt_api_key("sk-test"),
+    )
+
+    def fake_parse_task_intake_with_llm(received_intake, gateway, *, model_profile_id):
+        return replace(
+            received_intake,
+            structured_fields={
+                "task": "新建岗位",
+                "project": "北京 AI 产品经理",
+                "role": "AI 产品经理",
+                "location": "北京",
+                "level_years": "5-8 年",
+                "compensation": "40-70K",
+                "job_description": "负责 AI 产品规划",
+                "must_have": ["AI 产品经验"],
+                "nice_to_have": ["Agent 产品经验"],
+                "target_companies": ["字节"],
+                "excluded_companies": [],
+                "deliverables": ["岗位校准"],
+                "constraints": ["所有动作先确认"],
+                "missing_fields": [],
+                "assumptions": [],
+                "confidence": 0.92,
+            },
+            parser_status="llm_parsed",
+        )
+
+    monkeypatch.setattr(
+        "app.feishu.outbox_handlers.parse_task_intake_with_llm",
+        fake_parse_task_intake_with_llm,
+    )
+    handler = FeishuTaskConfirmationPrepareHandler(
+        payload_repository=payload_repository,
+        outbox_writer=outbox_writer,
+        settings=Settings(model_secret_encryption_key="test-model-secret"),
+        model_profile_repository=FakeModelProfileRepository(profile),
+    )
+
+    handler.prepare_task_confirmation(
+        build_task_confirmation_prepare_payload(
+            chat_id=intake.chat_id,
+            event_payload_ref="artifact://event",
+            model_profile_id=model_profile_id,
+            source_ref=intake.source_ref,
+            tenant_key=intake.tenant_key,
+            model_owner_user_id=intake.model_owner_user_id,
+            model_owner_id_type=intake.model_owner_id_type,
+            model_guild_id=intake.model_guild_id,
+            thread_id=intake.thread_id,
+        ),
+        idempotency_key="prepare-1",
+    )
+
+    assert [item["kind"] for item in outbox_writer.enqueued] == ["card_send"]
+    card_payload = outbox_writer.enqueued[0]["payload"]
+    assert card_payload["chat_id"] == "oc_1"
+    assert card_payload["card"]["header"]["title"]["content"] == "请确认猎头任务"
+    assert _card_markdown(card_payload["card"]).count("岗位: AI 产品经理") == 1
+    assert any(
+        item["content_ref"].startswith("artifact://feishu-task-intake/")
+        and item["payload"]["task_intake"]["parser_status"] == "llm_parsed"
+        for item in payload_repository.stored
+    )
+
+
+def test_task_confirmation_prepare_parse_failure_sends_failure_card_only(
+    monkeypatch,
+) -> None:
+    event_payload = _message_event_payload()
+    intake = parse_task_intake(event_payload, tenant_key="tenant_1")
+    model_profile_id = uuid4()
+    payload_repository = FakePayloadRepository({"artifact://event": event_payload})
+    outbox_writer = FakeOutboxWriter()
+    profile = FakeModelProfile(
+        profile_id=model_profile_id,
+        encrypted_api_key=ModelSecretService("test-model-secret").encrypt_api_key("sk-test"),
+    )
+
+    def fake_parse_task_intake_with_llm(received_intake, gateway, *, model_profile_id):
+        raise LLMGatewayError("chat completion response did not contain JSON content")
+
+    monkeypatch.setattr(
+        "app.feishu.outbox_handlers.parse_task_intake_with_llm",
+        fake_parse_task_intake_with_llm,
+    )
+    handler = FeishuTaskConfirmationPrepareHandler(
+        payload_repository=payload_repository,
+        outbox_writer=outbox_writer,
+        settings=Settings(model_secret_encryption_key="test-model-secret"),
+        model_profile_repository=FakeModelProfileRepository(profile),
+    )
+
+    handler.prepare_task_confirmation(
+        build_task_confirmation_prepare_payload(
+            chat_id=intake.chat_id,
+            event_payload_ref="artifact://event",
+            model_profile_id=model_profile_id,
+            source_ref=intake.source_ref,
+            tenant_key=intake.tenant_key,
+            model_owner_user_id=intake.model_owner_user_id,
+            model_owner_id_type=intake.model_owner_id_type,
+            model_guild_id=intake.model_guild_id,
+            thread_id=intake.thread_id,
+        ),
+        idempotency_key="prepare-1",
+    )
+
+    assert [item["kind"] for item in outbox_writer.enqueued] == ["card_send"]
+    card_payload = outbox_writer.enqueued[0]["payload"]
+    assert card_payload["card"]["header"]["title"]["content"] == "任务解析失败"
+    assert "系统没有启动任务" in _card_markdown(card_payload["card"])
+    assert "task_double_check" not in str(card_payload["card"])
+    assert not any(
+        item["content_ref"].startswith("artifact://feishu-task-intake/")
+        for item in payload_repository.stored
+    )
 
 
 def test_outbox_handler_writes_bitable_with_client_token() -> None:
@@ -296,3 +497,25 @@ def test_outbox_handler_resumes_graph_when_handler_is_wired() -> None:
     )
 
     assert graph_handler.resumed == [{"decision": "approve"}]
+
+
+def _message_event_payload() -> dict:
+    return {
+        "header": {
+            "event_id": "evt_1",
+            "event_type": "im.message.receive_v1",
+            "tenant_key": "tenant_1",
+        },
+        "event": {
+            "sender": {"sender_id": {"open_id": "ou_1"}},
+            "message": {
+                "message_id": "om_1",
+                "chat_id": "oc_1",
+                "content": '{"text":"新建岗位：北京 AI 产品经理，生成岗位校准和人才地图"}',
+            },
+        },
+    }
+
+
+def _card_markdown(card: dict) -> str:
+    return str(card.get("body", {}).get("elements", [{}])[0].get("text", {}).get("content", ""))

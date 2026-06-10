@@ -23,12 +23,14 @@ class FakeHttpResponse:
 
 class FakeHttpClient:
     def __init__(self, response):
-        self.response = response
+        self.responses = list(response) if isinstance(response, list) else [response]
         self.posts = []
 
     def post(self, url, headers, json):
         self.posts.append((url, headers, json))
-        return self.response
+        if len(self.responses) > 1:
+            return self.responses.pop(0)
+        return self.responses[0]
 
 
 def make_context_pack() -> ContextPack:
@@ -182,8 +184,115 @@ def test_deepseek_chat_gateway_uses_json_output_mode_without_raw_state() -> None
     user_payload = json.loads(body["messages"][1]["content"])
     assert "context_pack" in user_payload
     assert "json_schema" in user_payload
+    assert user_payload["json_output_contract"]["only_json"] is True
     assert "recruitment_state" not in body["messages"][1]["content"]
     assert "node_history" not in body["messages"][1]["content"]
+
+
+def test_deepseek_chat_gateway_extracts_json_from_markdown_fence() -> None:
+    gateway = DeepSeekChatCompletionsLLMGateway(
+        api_key="sk-deepseek",
+        model="deepseek-v4-pro",
+        client=FakeHttpClient(
+            FakeHttpResponse(
+                {"choices": [{"message": {"content": '```json\n{"summary":"ok"}\n```'}}]}
+            )
+        ),
+    )
+
+    result = gateway.generate_structured(
+        agent_name="StrategyDraftAgent",
+        context_pack=make_context_pack(),
+        output_schema={"type": "object"},
+        schema_name="agent_output",
+        max_output_tokens=800,
+    )
+
+    assert result == {"summary": "ok"}
+
+
+def test_deepseek_chat_gateway_extracts_json_wrapped_in_text() -> None:
+    gateway = DeepSeekChatCompletionsLLMGateway(
+        api_key="sk-deepseek",
+        model="deepseek-v4-pro",
+        client=FakeHttpClient(
+            FakeHttpResponse(
+                {"choices": [{"message": {"content": '结果如下：{"summary":"ok"}'}}]}
+            )
+        ),
+    )
+
+    result = gateway.generate_structured(
+        agent_name="StrategyDraftAgent",
+        context_pack=make_context_pack(),
+        output_schema={"type": "object"},
+        schema_name="agent_output",
+        max_output_tokens=800,
+    )
+
+    assert result == {"summary": "ok"}
+
+
+def test_deepseek_chat_gateway_retries_empty_content_then_succeeds() -> None:
+    client = FakeHttpClient(
+        [
+            FakeHttpResponse(
+                {"choices": [{"finish_reason": "stop", "message": {"content": ""}}]}
+            ),
+            FakeHttpResponse(
+                {
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {"content": '{"summary":"ok"}'},
+                        }
+                    ]
+                }
+            ),
+        ]
+    )
+    gateway = DeepSeekChatCompletionsLLMGateway(
+        api_key="sk-deepseek",
+        model="deepseek-v4-pro",
+        client=client,
+    )
+
+    result = gateway.generate_structured(
+        agent_name="StrategyDraftAgent",
+        context_pack=make_context_pack(),
+        output_schema={"type": "object"},
+        schema_name="agent_output",
+        max_output_tokens=800,
+    )
+
+    assert result == {"summary": "ok"}
+    assert len(client.posts) == 2
+    assert "thinking" in client.posts[0][2]
+    assert "thinking" not in client.posts[1][2]
+
+
+def test_deepseek_chat_gateway_empty_content_error_is_sanitized() -> None:
+    gateway = DeepSeekChatCompletionsLLMGateway(
+        api_key="sk-deepseek-secret",
+        model="deepseek-v4-pro",
+        client=FakeHttpClient(
+            FakeHttpResponse(
+                {"choices": [{"finish_reason": "stop", "message": {"content": ""}}]}
+            )
+        ),
+    )
+
+    with pytest.raises(LLMGatewayError) as exc:
+        gateway.generate_structured(
+            agent_name="StrategyDraftAgent",
+            context_pack=make_context_pack(),
+            output_schema={"type": "object"},
+            schema_name="agent_output",
+            max_output_tokens=800,
+        )
+
+    assert "JSON content" in str(exc.value)
+    assert "sk-" not in str(exc.value)
 
 
 def test_deepseek_chat_gateway_rejects_invalid_json_content() -> None:

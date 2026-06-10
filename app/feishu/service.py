@@ -22,21 +22,14 @@ from app.feishu.callbacks import (
 from app.feishu.cards import (
     build_model_setup_required_card,
     build_model_setup_saved_card,
-    build_task_confirmation_card,
 )
 from app.feishu.task_intake import (
-    build_graph_dispatch_payload,
-    create_task_plan,
-    mark_task_intake_parse_failed,
+    build_task_confirmation_prepare_payload,
     model_setup_card_ref,
     parse_task_intake,
-    parse_task_intake_with_llm,
-    task_confirmation_card_ref,
-    task_payload_ref,
+    task_confirmation_prepare_ref,
 )
-from app.model_profiles.gateway_factory import UserModelGatewayFactory
 from app.model_profiles.repository import ModelProfileNotFoundError, ModelProfileRepository
-from app.model_profiles.secrets import ModelSecretService
 from app.model_profiles.service import (
     ModelProfileCreateInput,
     ModelProfileService,
@@ -101,22 +94,25 @@ class FeishuCallbackService:
                 )
                 model_profile = self._default_model_profile(intake)
                 if model_profile is None:
-                    card_payload_ref = self._store_model_setup_card(
+                    outbox_payload_ref = self._store_model_setup_card(
                         payload_repository=payload_repository,
                         intake=intake,
                         chat_id=chat_id,
                         event_payload_ref=payload_ref,
                     )
+                    outbox_kind = "card_send"
                     thread_state = "pending_model_profile"
                     thread_id = intake.thread_id
                 else:
-                    card_payload_ref = self._store_task_confirmation_card(
+                    outbox_payload_ref = self._store_task_confirmation_prepare_payload(
                         payload_repository=payload_repository,
                         intake=intake,
                         chat_id=chat_id,
+                        event_payload_ref=payload_ref,
                         model_profile_id=model_profile.id,
                     )
-                    thread_state = "pending_task_confirmation"
+                    outbox_kind = "task_confirmation_prepare"
+                    thread_state = "pending_task_parse"
                     thread_id = intake.thread_id
                 self._upsert_pending_intake_thread(intake, status=thread_state)
                 FeishuEventRepository(self.session).record_event_and_enqueue(
@@ -129,8 +125,8 @@ class FeishuCallbackService:
                     idempotency_key=idempotency_key,
                     payload_hash=callback.payload_hash,
                     payload_ref=payload_ref,
-                    outbox_kind="card_send",
-                    outbox_payload_ref=card_payload_ref,
+                    outbox_kind=outbox_kind,
+                    outbox_payload_ref=outbox_payload_ref,
                     thread_id=thread_id,
                 )
         except DuplicateEventError:
@@ -337,18 +333,19 @@ class FeishuCallbackService:
                     operator_open_id=command.operator_open_id,
                     payload_ref=payload_ref,
                 )
-                card_payload_ref = self._store_task_confirmation_card(
+                prepare_payload_ref = self._store_task_confirmation_prepare_payload(
                     payload_repository=payload_repository,
                     intake=intake,
                     chat_id=command.chat_id,
+                    event_payload_ref=command.event_payload_ref,
                     model_profile_id=profile.id,
                 )
                 FeishuOutboxWriteRepository(self.session).enqueue_json(
-                    kind="card_send",
-                    idempotency_key=f"task_confirmation_after_model_setup:{command.idempotency_key}",
-                    payload=payload_repository.get_json_payload(card_payload_ref),
+                    kind="task_confirmation_prepare",
+                    idempotency_key=f"task_confirmation_prepare_after_model_setup:{command.idempotency_key}",
+                    payload=payload_repository.get_json_payload(prepare_payload_ref),
                     thread_id=command.thread_id,
-                    content_ref=card_payload_ref,
+                    content_ref=prepare_payload_ref,
                 )
                 if command.open_message_id:
                     FeishuOutboxWriteRepository(self.session).enqueue_json(
@@ -382,107 +379,38 @@ class FeishuCallbackService:
             status="model_setup_saved",
             idempotency_key=command.idempotency_key,
             payload_ref=payload_ref,
-            message="模型已保存并设为默认，已继续发送任务确认卡。",
+            message="模型已保存，正在解析任务，确认卡稍后发送。",
         )
 
-    def _store_task_confirmation_card(
+    def _store_task_confirmation_prepare_payload(
         self,
         *,
         payload_repository: PayloadRepository,
         intake,
         chat_id: str,
+        event_payload_ref: str,
         model_profile_id: UUID,
     ) -> str:
-        intake = self._parse_task_intake_with_user_model(intake, model_profile_id)
-        task_plan = create_task_plan(intake, self.policy_engine)
-        graph_payload = build_graph_dispatch_payload(
-            intake=intake,
-            task_plan=task_plan,
+        prepare_payload = build_task_confirmation_prepare_payload(
+            chat_id=chat_id,
+            event_payload_ref=event_payload_ref,
             model_profile_id=model_profile_id,
-        )
-        graph_payload_ref = task_payload_ref(task_plan.thread_id, task_plan.task_id)
-        graph_raw = _json_payload_text(graph_payload)
-        payload_repository.store_json_payload(
-            content_ref=graph_payload_ref,
-            payload=graph_payload,
-            raw_text=graph_raw,
-            sha256=_sha256(graph_raw),
-        )
-        card = build_task_confirmation_card(
-            thread_id=task_plan.thread_id,
-            task_id=task_plan.task_id,
-            task_payload_ref=graph_payload_ref,
             source_ref=intake.source_ref,
-            request_text=task_plan.request_text,
-            task_type=task_plan.task_type,
-            council_mode=task_plan.council_mode.value,
-            mode_reason=task_plan.mode_reason,
-            field_sources=intake.field_sources,
-            missing_fields=intake.missing_fields,
-            assumptions=intake.assumptions,
-            structured_fields=intake.structured_fields,
-            raw_request_text=intake.request_text,
-            parser_status=intake.parser_status,
-            parser_error=intake.parser_error,
+            tenant_key=intake.tenant_key,
+            model_owner_user_id=intake.model_owner_user_id,
+            model_owner_id_type=intake.model_owner_id_type,
+            model_guild_id=intake.model_guild_id,
+            thread_id=intake.thread_id,
         )
-        card_payload = {"chat_id": chat_id, "card": card}
-        card_payload_ref = task_confirmation_card_ref(task_plan.thread_id, task_plan.task_id)
-        card_raw = _json_payload_text(card_payload)
+        prepare_payload_ref = task_confirmation_prepare_ref(intake.source_ref, model_profile_id)
+        prepare_raw = _json_payload_text(prepare_payload)
         payload_repository.store_json_payload(
-            content_ref=card_payload_ref,
-            payload=card_payload,
-            raw_text=card_raw,
-            sha256=_sha256(card_raw),
+            content_ref=prepare_payload_ref,
+            payload=prepare_payload,
+            raw_text=prepare_raw,
+            sha256=_sha256(prepare_raw),
         )
-        return card_payload_ref
-
-    def _parse_task_intake_with_user_model(self, intake, model_profile_id: UUID):
-        if not self.settings.model_secret_encryption_key:
-            return intake
-        if not intake.model_owner_user_id or not intake.model_guild_id:
-            return mark_task_intake_parse_failed(intake, "missing BYOK owner scope")
-        try:
-            secret_service = ModelSecretService(
-                self.settings.model_secret_encryption_key.get_secret_value()
-            )
-            gateway_factory = UserModelGatewayFactory(
-                repository=ModelProfileRepository(self.session),
-                secret_service=secret_service,
-                provider_allowlist=_provider_allowlist(self.settings),
-                timeout_seconds=60.0,
-            )
-            gateway = gateway_factory.build_chat_gateway(
-                profile_id=model_profile_id,
-                tenant_id=intake.tenant_key,
-                guild_id=intake.model_guild_id,
-                user_id=intake.model_owner_user_id,
-            )
-            parsed = parse_task_intake_with_llm(
-                intake,
-                gateway,
-                model_profile_id=model_profile_id,
-            )
-            logger.info(
-                "Feishu task intake parsed by LLM: thread_id=%s task_id=%s source_ref=%s "
-                "model_profile_id=%s parser_status=%s",
-                parsed.thread_id,
-                parsed.task_id,
-                parsed.source_ref,
-                model_profile_id,
-                parsed.parser_status,
-            )
-            return parsed
-        except Exception as exc:
-            safe_error = _safe_intake_parse_error(exc)
-            logger.warning(
-                "Feishu task intake LLM parse failed: thread_id=%s source_ref=%s "
-                "model_profile_id=%s error=%s",
-                intake.thread_id,
-                intake.source_ref,
-                model_profile_id,
-                safe_error,
-            )
-            return mark_task_intake_parse_failed(intake, safe_error)
+        return prepare_payload_ref
 
     def _store_model_setup_card(
         self,

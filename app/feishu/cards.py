@@ -176,6 +176,27 @@ def build_task_confirmation_card(
     return card
 
 
+def build_task_parse_failed_card(
+    *,
+    thread_id: UUID,
+    source_ref: str,
+    model_label: str,
+    error_summary: str,
+) -> dict[str, Any]:
+    return _base_card(
+        title="任务解析失败",
+        template="red",
+        markdown=(
+            f"**thread_id**\n{thread_id}\n\n"
+            f"**source_ref**\n{source_ref}\n\n"
+            f"**模型**\n{model_label or 'unknown'}\n\n"
+            f"**错误摘要**\n{error_summary or 'unknown'}\n\n"
+            "系统没有启动任务，也没有生成确认按钮。请检查模型名称、Base URL、API Key 后，"
+            "重新在群里 @ 机器人发送任务。"
+        ),
+    )
+
+
 def build_model_setup_required_card(
     *,
     thread_id: UUID,
@@ -207,7 +228,7 @@ def build_model_setup_required_card(
             f"**user_id**\n{user_id or 'unknown'}\n\n"
             f"**收到的任务**\n{request_text or '未解析到文本'}\n\n"
             "当前飞书用户没有默认 chat 模型 profile，系统已阻断正式 graph。"
-            "请在下方填写 API Key 后保存，系统会加密存储并继续发送任务确认卡。"
+            "请在下方填写 API Key 后保存，系统会加密存储，并在后台解析任务后发送确认卡。"
         ),
     )
     card["body"]["elements"].append(
@@ -272,7 +293,7 @@ def build_model_setup_saved_card(
         markdown=(
             f"**thread_id**\n{thread_id}\n\n"
             f"**模型**\n{provider}:{model_name}\n\n"
-            "API Key 已加密保存。任务确认卡已发送，请在新卡片中确认后启动。"
+            "API Key 已加密保存。正在解析任务并发送确认卡，请稍后在新卡片中确认后启动。"
         ),
     )
 

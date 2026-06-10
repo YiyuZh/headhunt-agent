@@ -331,7 +331,13 @@ def build_readiness_report(settings: Settings) -> ReadinessReport:
             message_ok="Durable outbox worker polling is configured.",
             message_missing="OUTBOX_POLL_SECONDS must be greater than 0.",
             env_vars=["OUTBOX_WORKER_ID", "OUTBOX_POLL_SECONDS"],
-            required_for=["graph_dispatch", "resume", "card_send", "bitable_write"],
+            required_for=[
+                "graph_dispatch",
+                "resume",
+                "card_send",
+                "bitable_write",
+                "task_confirmation_prepare",
+            ],
         ),
     ]
     missing_required = _missing_env_vars(details)

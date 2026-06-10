@@ -14,13 +14,17 @@ from app.feishu.gateways import (
     FeishuHttpBitableGateway,
     FeishuHttpGateway,
 )
-from app.feishu.outbox_handlers import FeishuOutboxHandler
+from app.feishu.outbox_handlers import (
+    FeishuOutboxHandler,
+    FeishuTaskConfirmationPrepareHandler,
+)
 from app.runtime.dependencies import build_runtime_graph_factory
 from app.runtime.outbox import LangGraphOutboxHandler
 from app.storage.database import SessionLocal
 from app.storage.repositories import (
     BitableSyncRepository,
     FeishuOutboxRepository,
+    FeishuOutboxWriteRepository,
     PayloadRepository,
 )
 
@@ -42,12 +46,19 @@ def build_feishu_outbox_dispatcher(
         graph_factory=graph_factory,
         use_postgres_checkpointer=use_postgres_checkpointer,
     )
+    payload_repository = PayloadRepository(session)
+    outbox_writer = FeishuOutboxWriteRepository(session)
     handler = FeishuOutboxHandler(
-        payload_repository=PayloadRepository(session),
+        payload_repository=payload_repository,
         feishu_gateway=FeishuHttpGateway(auth_provider=auth_provider),
         bitable_gateway=FeishuHttpBitableGateway(auth_provider=auth_provider),
         graph_handler=graph_handler,
         bitable_sync_repository=BitableSyncRepository(session),
+        task_confirmation_preparer=FeishuTaskConfirmationPrepareHandler(
+            payload_repository=payload_repository,
+            outbox_writer=outbox_writer,
+            settings=resolved_settings,
+        ),
     )
     return FeishuOutboxDispatcher(
         repository=FeishuOutboxRepository(session),

@@ -475,7 +475,7 @@ def upgrade() -> None:
         _updated_at(),
         sa.CheckConstraint(
             "kind IN "
-            "('graph_dispatch','card_send','card_update','bitable_write','resume')",
+            "('graph_dispatch','card_send','card_update','bitable_write','resume','task_confirmation_prepare')",
             name="ck_feishu_outbox_kind",
         ),
         sa.CheckConstraint(
