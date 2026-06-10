@@ -284,15 +284,26 @@ class FeishuCallbackVerifier:
             return False
 
         _validate_timestamp_window(timestamp)
-        actual = calculate_feishu_card_signature(
-            timestamp=timestamp,
-            nonce=nonce,
-            verification_token=self.verification_token,
-            raw_body=raw_body,
-        )
-        if not hmac.compare_digest(actual, expected):
-            raise FeishuCallbackVerificationError("Invalid Feishu card callback signature")
-        return True
+        candidate_signatures = [
+            calculate_feishu_card_signature(
+                timestamp=timestamp,
+                nonce=nonce,
+                verification_token=self.verification_token,
+                raw_body=raw_body,
+            )
+        ]
+        if self.encrypt_key:
+            candidate_signatures.append(
+                calculate_feishu_signature(
+                    timestamp=timestamp,
+                    nonce=nonce,
+                    encrypt_key=self.encrypt_key,
+                    raw_body=raw_body,
+                )
+            )
+        if any(hmac.compare_digest(actual, expected) for actual in candidate_signatures):
+            return True
+        raise FeishuCallbackVerificationError("Invalid Feishu card callback signature")
 
     def _decrypt_if_needed(self, body: dict[str, Any]) -> dict[str, Any]:
         encrypted = body.get("encrypt")

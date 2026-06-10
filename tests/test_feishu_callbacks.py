@@ -452,7 +452,7 @@ def test_feishu_card_action_rejects_stale_signature_timestamp() -> None:
     assert "timestamp" in response.json()["detail"]
 
 
-def test_feishu_card_action_rejects_event_style_encrypt_key_signature() -> None:
+def test_feishu_card_action_accepts_event_style_encrypt_key_signature() -> None:
     app = create_app(
         settings=Settings(
             feishu_verification_token="test-token",
@@ -489,8 +489,10 @@ def test_feishu_card_action_rejects_event_style_encrypt_key_signature() -> None:
         headers=_event_style_card_headers(body),
     )
 
-    assert response.status_code == 401
-    assert "signature" in response.json()["detail"]
+    assert response.status_code == 200
+    assert response.json() == {
+        "toast": {"type": "info", "content": "已确认，正在继续任务"}
+    }
 
 
 def test_feishu_card_action_rejects_wrong_callback_type() -> None:
