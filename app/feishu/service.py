@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -26,12 +27,16 @@ from app.feishu.cards import (
 from app.feishu.task_intake import (
     build_graph_dispatch_payload,
     create_task_plan,
+    mark_task_intake_parse_failed,
     model_setup_card_ref,
     parse_task_intake,
+    parse_task_intake_with_llm,
     task_confirmation_card_ref,
     task_payload_ref,
 )
+from app.model_profiles.gateway_factory import UserModelGatewayFactory
 from app.model_profiles.repository import ModelProfileNotFoundError, ModelProfileRepository
+from app.model_profiles.secrets import ModelSecretService
 from app.model_profiles.service import (
     ModelProfileCreateInput,
     ModelProfileService,
@@ -50,6 +55,8 @@ from app.storage.repositories import (
     InvalidHumanApprovalError,
     PayloadRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -386,6 +393,7 @@ class FeishuCallbackService:
         chat_id: str,
         model_profile_id: UUID,
     ) -> str:
+        intake = self._parse_task_intake_with_user_model(intake, model_profile_id)
         task_plan = create_task_plan(intake, self.policy_engine)
         graph_payload = build_graph_dispatch_payload(
             intake=intake,
@@ -412,6 +420,10 @@ class FeishuCallbackService:
             field_sources=intake.field_sources,
             missing_fields=intake.missing_fields,
             assumptions=intake.assumptions,
+            structured_fields=intake.structured_fields,
+            raw_request_text=intake.request_text,
+            parser_status=intake.parser_status,
+            parser_error=intake.parser_error,
         )
         card_payload = {"chat_id": chat_id, "card": card}
         card_payload_ref = task_confirmation_card_ref(task_plan.thread_id, task_plan.task_id)
@@ -423,6 +435,54 @@ class FeishuCallbackService:
             sha256=_sha256(card_raw),
         )
         return card_payload_ref
+
+    def _parse_task_intake_with_user_model(self, intake, model_profile_id: UUID):
+        if not self.settings.model_secret_encryption_key:
+            return intake
+        if not intake.model_owner_user_id or not intake.model_guild_id:
+            return mark_task_intake_parse_failed(intake, "missing BYOK owner scope")
+        try:
+            secret_service = ModelSecretService(
+                self.settings.model_secret_encryption_key.get_secret_value()
+            )
+            gateway_factory = UserModelGatewayFactory(
+                repository=ModelProfileRepository(self.session),
+                secret_service=secret_service,
+                provider_allowlist=_provider_allowlist(self.settings),
+                timeout_seconds=60.0,
+            )
+            gateway = gateway_factory.build_chat_gateway(
+                profile_id=model_profile_id,
+                tenant_id=intake.tenant_key,
+                guild_id=intake.model_guild_id,
+                user_id=intake.model_owner_user_id,
+            )
+            parsed = parse_task_intake_with_llm(
+                intake,
+                gateway,
+                model_profile_id=model_profile_id,
+            )
+            logger.info(
+                "Feishu task intake parsed by LLM: thread_id=%s task_id=%s source_ref=%s "
+                "model_profile_id=%s parser_status=%s",
+                parsed.thread_id,
+                parsed.task_id,
+                parsed.source_ref,
+                model_profile_id,
+                parsed.parser_status,
+            )
+            return parsed
+        except Exception as exc:
+            safe_error = _safe_intake_parse_error(exc)
+            logger.warning(
+                "Feishu task intake LLM parse failed: thread_id=%s source_ref=%s "
+                "model_profile_id=%s error=%s",
+                intake.thread_id,
+                intake.source_ref,
+                model_profile_id,
+                safe_error,
+            )
+            return mark_task_intake_parse_failed(intake, safe_error)
 
     def _store_model_setup_card(
         self,
@@ -659,3 +719,19 @@ def _safe_model_setup_error(exc: Exception) -> str:
     if "sk-" in text or "api_key" in lowered or "secret" in lowered:
         return "模型配置失败：API Key 未保存或验证失败。"
     return f"模型配置失败：{text[:240]}"
+
+
+def _provider_allowlist(settings: Settings) -> set[str]:
+    return {
+        item.strip().lower()
+        for item in settings.model_provider_allowlist.split(",")
+        if item.strip()
+    } or {"openai", "deepseek"}
+
+
+def _safe_intake_parse_error(exc: Exception) -> str:
+    text = str(exc) or exc.__class__.__name__
+    lowered = text.lower()
+    if "sk-" in text or "api_key" in lowered or "secret" in lowered:
+        return f"{exc.__class__.__name__}: model credential rejected or unavailable"
+    return f"{exc.__class__.__name__}: {text[:240]}"

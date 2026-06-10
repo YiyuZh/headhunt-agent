@@ -135,6 +135,10 @@ def build_task_confirmation_card(
     field_sources: list[dict[str, Any]],
     missing_fields: list[str],
     assumptions: list[str],
+    structured_fields: dict[str, Any] | None = None,
+    raw_request_text: str | None = None,
+    parser_status: str | None = None,
+    parser_error: str | None = None,
 ) -> dict[str, Any]:
     idempotency_key = f"task_confirm:{source_ref}"
     value = {
@@ -155,7 +159,9 @@ def build_task_confirmation_card(
             f"**任务类型**\n{task_type}\n\n"
             f"**会审模式**\n{council_mode}\n\n"
             f"**模式原因**\n{mode_reason}\n\n"
-            f"**原始任务**\n{request_text}\n\n"
+            f"**结构化任务**\n{_structured_task_lines(structured_fields, request_text)}\n\n"
+            f"**原始任务**\n{raw_request_text or request_text}\n\n"
+            f"**解析状态**\n{_parser_status_line(parser_status, parser_error)}\n\n"
             f"**字段来源**\n{_field_source_lines(field_sources)}\n\n"
             f"**缺失字段**\n{_plain_lines(missing_fields)}\n\n"
             f"**系统假设**\n{_plain_lines(assumptions)}"
@@ -299,6 +305,61 @@ def _button(label: str, button_type: str, value: dict[str, Any]) -> dict[str, An
         "type": button_type,
         "behaviors": [{"type": "callback", "value": value}],
     }
+
+
+def _structured_task_lines(fields: dict[str, Any] | None, fallback: str) -> str:
+    if not fields:
+        return fallback
+    lines: list[str] = []
+    for label, key in (
+        ("任务", "task"),
+        ("项目", "project"),
+        ("岗位", "role"),
+        ("地点", "location"),
+        ("职级/年限", "level_years"),
+        ("薪资", "compensation"),
+        ("JD", "job_description"),
+    ):
+        value = _text(fields.get(key))
+        if value:
+            lines.append(f"- {label}: {value}")
+    for label, key in (
+        ("Must-have", "must_have"),
+        ("Nice-to-have", "nice_to_have"),
+        ("目标公司", "target_companies"),
+        ("排除公司", "excluded_companies"),
+        ("交付物", "deliverables"),
+        ("限制", "constraints"),
+    ):
+        values = _text_list(fields.get(key))
+        if values:
+            lines.append(f"- {label}: {'、'.join(values)}")
+    return "\n".join(lines) or fallback
+
+
+def _parser_status_line(status: str | None, error: str | None) -> str:
+    if status == "llm_parsed":
+        return "大模型已完成结构化解析"
+    if status == "llm_failed":
+        return f"大模型解析失败，已回退规则解析：{error or 'unknown'}"
+    if status == "not_run":
+        return "未运行大模型解析"
+    return status or "unknown"
+
+
+def _text(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _text_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result = []
+    for item in value:
+        text = _text(item)
+        if text:
+            result.append(text)
+    return result
 
 
 def _form_submit_button(

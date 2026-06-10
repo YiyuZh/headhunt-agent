@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
@@ -5,6 +6,8 @@ from uuid import UUID
 
 from app.storage.models import FeishuOutbox
 from app.storage.repositories import FeishuOutboxRepository
+
+logger = logging.getLogger(__name__)
 
 
 class OutboxHandler(Protocol):
@@ -53,6 +56,15 @@ class FeishuOutboxDispatcher:
         if item is None:
             return OutboxDispatchResult(outbox_id=None, kind=None, status="idle")
 
+        logger.info(
+            "Feishu outbox dispatch claimed: outbox_id=%s kind=%s attempt_count=%s "
+            "payload_ref=%s worker_id=%s",
+            item.id,
+            item.kind,
+            item.attempt_count,
+            getattr(item, "payload_ref", None),
+            self.worker_id,
+        )
         try:
             self.handler.handle(item)
         except OutboxDispatchError as exc:
@@ -69,6 +81,12 @@ class FeishuOutboxDispatcher:
         except Exception:
             self.repository.rollback()
             raise
+        logger.info(
+            "Feishu outbox dispatch succeeded: outbox_id=%s kind=%s payload_ref=%s",
+            item.id,
+            item.kind,
+            getattr(item, "payload_ref", None),
+        )
         return OutboxDispatchResult(outbox_id=item.id, kind=item.kind, status="succeeded")
 
     def _handle_failure(
@@ -87,6 +105,15 @@ class FeishuOutboxDispatcher:
             except Exception:
                 self.repository.rollback()
                 raise
+            logger.error(
+                "Feishu outbox dispatch dead_letter: outbox_id=%s kind=%s "
+                "attempt_count=%s payload_ref=%s error=%s",
+                item.id,
+                item.kind,
+                attempts,
+                getattr(item, "payload_ref", None),
+                error[:500],
+            )
             return OutboxDispatchResult(
                 outbox_id=item.id,
                 kind=item.kind,
@@ -104,4 +131,14 @@ class FeishuOutboxDispatcher:
         except Exception:
             self.repository.rollback()
             raise
+        logger.warning(
+            "Feishu outbox dispatch retrying: outbox_id=%s kind=%s attempt_count=%s "
+            "next_attempt_seconds=%s payload_ref=%s error=%s",
+            item.id,
+            item.kind,
+            attempts,
+            retry_after,
+            getattr(item, "payload_ref", None),
+            error[:500],
+        )
         return OutboxDispatchResult(outbox_id=item.id, kind=item.kind, status="retrying")

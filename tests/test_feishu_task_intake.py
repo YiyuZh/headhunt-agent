@@ -1,7 +1,12 @@
 from uuid import UUID, uuid4
 
 from app.feishu.cards import build_task_confirmation_card
-from app.feishu.task_intake import build_graph_dispatch_payload, create_task_plan, parse_task_intake
+from app.feishu.task_intake import (
+    build_graph_dispatch_payload,
+    create_task_plan,
+    parse_task_intake,
+    parse_task_intake_with_llm,
+)
 from app.policy.engine import PolicyEngine
 
 
@@ -54,6 +59,52 @@ def test_task_confirmation_card_contains_approve_and_reject_values() -> None:
     assert approve["behaviors"][0]["value"]["idempotency_key"].startswith("task_confirm:")
 
 
+def test_task_intake_llm_parser_structures_confirmation_card() -> None:
+    payload = {
+        "event": {
+            "sender": {"sender_id": {"open_id": "ou_1"}},
+            "message": {
+                "message_id": "om_1",
+                "chat_id": "oc_1",
+                "content": '{"text":"新建岗位：北京 AI 产品经理，生成岗位校准和人才地图"}',
+            },
+        }
+    }
+    intake = parse_task_intake(payload, tenant_key="tenant_1")
+
+    parsed = parse_task_intake_with_llm(
+        intake,
+        FakeTaskIntakeLLM(),
+        model_profile_id=uuid4(),
+    )
+    task_plan = create_task_plan(parsed, PolicyEngine())
+    card = build_task_confirmation_card(
+        thread_id=parsed.thread_id,
+        task_id=parsed.task_id,
+        task_payload_ref="artifact://task",
+        source_ref=parsed.source_ref,
+        request_text=task_plan.request_text,
+        task_type=task_plan.task_type,
+        council_mode=task_plan.council_mode.value,
+        mode_reason=task_plan.mode_reason,
+        field_sources=parsed.field_sources,
+        missing_fields=parsed.missing_fields,
+        assumptions=parsed.assumptions,
+        structured_fields=parsed.structured_fields,
+        raw_request_text=parsed.request_text,
+        parser_status=parsed.parser_status,
+        parser_error=parsed.parser_error,
+    )
+
+    content = card["body"]["elements"][0]["text"]["content"]
+    assert parsed.parser_status == "llm_parsed"
+    assert "- 岗位: AI 产品经理" in content
+    assert "- 地点: 北京" in content
+    assert "- 交付物: 岗位校准、人才地图" in content
+    assert "大模型已完成结构化解析" in content
+    assert "新建岗位：北京 AI 产品经理" in content
+
+
 def test_graph_dispatch_payload_preserves_byok_scope_after_double_check() -> None:
     payload = {
         "event": {
@@ -83,3 +134,25 @@ def test_graph_dispatch_payload_preserves_byok_scope_after_double_check() -> Non
     assert graph_payload["model_owner_id_type"] == "open_id"
     assert graph_payload["model_guild_id"] == "oc_1"
     assert graph_payload["authorization"]["status"] == "pending_feishu_double_check"
+
+
+class FakeTaskIntakeLLM:
+    def generate_structured(self, **kwargs):
+        return {
+            "task": "新建岗位",
+            "project": "北京 AI 产品经理",
+            "role": "AI 产品经理",
+            "location": "北京",
+            "level_years": "",
+            "compensation": "",
+            "job_description": "",
+            "must_have": [],
+            "nice_to_have": [],
+            "target_companies": [],
+            "excluded_companies": [],
+            "deliverables": ["岗位校准", "人才地图"],
+            "constraints": [],
+            "missing_fields": [],
+            "assumptions": [],
+            "confidence": 0.9,
+        }

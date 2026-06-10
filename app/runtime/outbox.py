@@ -1,4 +1,5 @@
 import json
+import logging
 from contextlib import nullcontext
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -6,6 +7,8 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from langgraph.types import Command
 
 from app.runtime.graph_factory import RuntimeGraphFactory
+
+logger = logging.getLogger(__name__)
 
 
 class RuntimeNotReadyError(RuntimeError):
@@ -39,11 +42,24 @@ class LangGraphOutboxHandler:
             )
         state = feishu_payload_to_initial_state(payload)
         _require_feishu_task_intake_ready(state)
+        logger.info(
+            "LangGraph dispatch starting: thread_id=%s source=%s task_type=%s "
+            "model_profile_id=%s",
+            state.get("thread_id"),
+            state.get("source"),
+            state.get("task_type"),
+            state.get("model_profile_id"),
+        )
         with self._graph_context() as graph:
             self.last_result = graph.invoke(
                 state,
                 config=_thread_config(state["thread_id"]),
             )
+        logger.info(
+            "LangGraph dispatch finished: thread_id=%s result_type=%s",
+            state.get("thread_id"),
+            type(self.last_result).__name__,
+        )
 
     def resume_graph(self, payload: dict[str, Any]) -> None:
         if not self._resume_runtime_ready():
@@ -52,11 +68,21 @@ class LangGraphOutboxHandler:
             )
         approval = feishu_card_payload_to_human_approval(payload)
         thread_id = approval["thread_id"]
+        logger.info(
+            "LangGraph resume starting: thread_id=%s decision=%s",
+            thread_id,
+            approval.get("decision"),
+        )
         with self._graph_context() as graph:
             self.last_result = graph.invoke(
                 Command(resume=approval),
                 config=_thread_config(thread_id),
             )
+        logger.info(
+            "LangGraph resume finished: thread_id=%s result_type=%s",
+            thread_id,
+            type(self.last_result).__name__,
+        )
 
     def _graph_context(self):
         if self.graph is not None:
