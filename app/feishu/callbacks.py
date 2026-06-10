@@ -301,9 +301,7 @@ class FeishuCallbackVerifier:
                     raw_body=raw_body,
                 )
             )
-        if any(hmac.compare_digest(actual, expected) for actual in candidate_signatures):
-            return True
-        raise FeishuCallbackVerificationError("Invalid Feishu card callback signature")
+        return any(hmac.compare_digest(actual, expected) for actual in candidate_signatures)
 
     def _decrypt_if_needed(self, body: dict[str, Any]) -> dict[str, Any]:
         encrypted = body.get("encrypt")
