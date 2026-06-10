@@ -283,7 +283,12 @@ class FeishuCallbackVerifier:
         if not (timestamp and nonce and expected):
             return False
 
-        _validate_timestamp_window(timestamp)
+        try:
+            _validate_timestamp_window(timestamp)
+        except FeishuCallbackVerificationError as exc:
+            if str(exc) == "Invalid Feishu callback timestamp":
+                return False
+            raise
         candidate_signatures = [
             calculate_feishu_card_signature(
                 timestamp=timestamp,

@@ -543,6 +543,54 @@ def test_feishu_card_action_falls_back_to_token_when_signature_mismatches() -> N
     }
 
 
+def test_feishu_card_action_falls_back_to_token_when_timestamp_is_malformed() -> None:
+    app = create_app(
+        settings=Settings(
+            feishu_verification_token="test-token",
+            feishu_encrypt_key="encrypt-key",
+        )
+    )
+    app.dependency_overrides[get_feishu_callback_service] = FakeFeishuCallbackService
+    client = TestClient(app)
+
+    body = _encrypted_card_body(
+        {
+            "schema": "2.0",
+            "header": {
+                "event_id": "card_evt_1",
+                "event_type": "card.action.trigger",
+                "token": "test-token",
+            },
+            "event": {
+                "operator": {"open_id": "ou_1"},
+                "action": {
+                    "value": {
+                        "thread_id": str(uuid4()),
+                        "action_id": str(uuid4()),
+                        "idempotency_key": "card-action-1",
+                        "decision": "approve",
+                    }
+                },
+            },
+        }
+    )
+    response = client.post(
+        "/feishu/card-actions",
+        content=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Lark-Request-Timestamp": "invalid-timestamp",
+            "X-Lark-Request-Nonce": "nonce",
+            "X-Lark-Signature": "bad-signature",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "toast": {"type": "info", "content": "已确认，正在继续任务"}
+    }
+
+
 def test_feishu_card_action_rejects_wrong_callback_type() -> None:
     app = create_app(
         settings=Settings(
