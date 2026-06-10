@@ -88,6 +88,15 @@ def test_feishu_event_enqueues_task_confirmation_card_not_graph_dispatch() -> No
     result = FeishuCallbackService(session, settings=Settings()).enqueue_event(callback)
 
     assert result.status == "queued"
+    graph_thread = _insert_params_for_table(session, "graph_threads")
+    assert graph_thread["id"] == parse_task_intake(
+        callback.payload,
+        tenant_key=callback.tenant_key,
+    ).thread_id
+    assert graph_thread["task_type"] == "task_intake"
+    assert graph_thread["state_summary"]["authorization_status"] == (
+        "pending_task_confirmation"
+    )
     outbox_params = _insert_params_for_table(session, "feishu_outbox")
     assert outbox_params["kind"] == "card_send"
     assert outbox_params["payload_ref"].startswith("artifact://feishu-card/task-confirmation/")
@@ -105,6 +114,13 @@ def _legacy_feishu_event_without_default_model_sends_setup_card_only() -> None:
     result = FeishuCallbackService(session, settings=Settings()).enqueue_event(callback)
 
     assert result.status == "queued"
+    graph_thread = _insert_params_for_table(session, "graph_threads")
+    assert graph_thread["id"] == parse_task_intake(
+        callback.payload,
+        tenant_key=callback.tenant_key,
+    ).thread_id
+    assert graph_thread["task_type"] == "task_intake"
+    assert graph_thread["state_summary"]["authorization_status"] == "pending_model_profile"
     outbox_params = _insert_params_for_table(session, "feishu_outbox")
     assert outbox_params["kind"] == "card_send"
     card_payloads = _artifact_payloads(session, title="请先配置模型")
@@ -118,6 +134,13 @@ def test_feishu_event_without_default_model_sends_setup_card_only() -> None:
     result = FeishuCallbackService(session, settings=Settings()).enqueue_event(callback)
 
     assert result.status == "queued"
+    graph_thread = _insert_params_for_table(session, "graph_threads")
+    assert graph_thread["id"] == parse_task_intake(
+        callback.payload,
+        tenant_key=callback.tenant_key,
+    ).thread_id
+    assert graph_thread["task_type"] == "task_intake"
+    assert graph_thread["state_summary"]["authorization_status"] == "pending_model_profile"
     outbox_params = _insert_params_for_table(session, "feishu_outbox")
     assert outbox_params["kind"] == "card_send"
     card_payloads = _artifact_payloads(session, title="请先配置模型")

@@ -100,6 +100,7 @@ class FeishuCallbackService:
                         chat_id=chat_id,
                         event_payload_ref=payload_ref,
                     )
+                    thread_state = "pending_model_profile"
                     thread_id = intake.thread_id
                 else:
                     card_payload_ref = self._store_task_confirmation_card(
@@ -108,7 +109,9 @@ class FeishuCallbackService:
                         chat_id=chat_id,
                         model_profile_id=model_profile.id,
                     )
+                    thread_state = "pending_task_confirmation"
                     thread_id = intake.thread_id
+                self._upsert_pending_intake_thread(intake, status=thread_state)
                 FeishuEventRepository(self.session).record_event_and_enqueue(
                     event_id=callback.event_id or callback.payload_hash,
                     event_type=callback.event_type,
@@ -451,27 +454,69 @@ class FeishuCallbackService:
         )
         return card_payload_ref
 
-    def _upsert_graph_thread(self, task_payload: dict[str, Any]) -> None:
+    def _upsert_pending_intake_thread(self, intake, *, status: str) -> None:
+        insert_stmt = pg_insert(GraphThread).values(
+            id=intake.thread_id,
+            source="feishu",
+            source_ref=intake.source_ref,
+            task_type="task_intake",
+            council_mode=None,
+            mode_reason=None,
+            status="queued",
+            state_summary={
+                "authorization_status": status,
+                "task_id": str(intake.task_id),
+                "request_summary": intake.request_text[:240],
+                "source_ref": intake.source_ref,
+                "message_id": intake.message_id,
+                "chat_id": intake.chat_id,
+                "model_owner_user_id": intake.model_owner_user_id,
+                "model_owner_id_type": intake.model_owner_id_type,
+            },
+        )
         self.session.execute(
-            pg_insert(GraphThread)
-            .values(
-                id=UUID(task_payload["thread_id"]),
-                source="feishu",
-                source_ref=task_payload["source_ref"],
-                task_type=task_payload["task_type"],
-                council_mode=task_payload["council_mode"],
-                mode_reason=task_payload["mode_reason"],
-                status="queued",
-                state_summary={
-                    "authorization_status": "authorized",
-                    "task_id": task_payload["task_id"],
-                    "request_summary": task_payload["user_input"][:240],
-                    "council_mode": task_payload["council_mode"],
-                    "mode_reason": task_payload["mode_reason"],
-                    "source_ref": task_payload["source_ref"],
+            insert_stmt.on_conflict_do_update(
+                index_elements=["id"],
+                set_={
+                    "source": insert_stmt.excluded.source,
+                    "source_ref": insert_stmt.excluded.source_ref,
+                    "state_summary": insert_stmt.excluded.state_summary,
                 },
             )
-            .on_conflict_do_nothing(index_elements=["id"])
+        )
+        self.session.flush()
+
+    def _upsert_graph_thread(self, task_payload: dict[str, Any]) -> None:
+        insert_stmt = pg_insert(GraphThread).values(
+            id=UUID(task_payload["thread_id"]),
+            source="feishu",
+            source_ref=task_payload["source_ref"],
+            task_type=task_payload["task_type"],
+            council_mode=task_payload["council_mode"],
+            mode_reason=task_payload["mode_reason"],
+            status="queued",
+            state_summary={
+                "authorization_status": "authorized",
+                "task_id": task_payload["task_id"],
+                "request_summary": task_payload["user_input"][:240],
+                "council_mode": task_payload["council_mode"],
+                "mode_reason": task_payload["mode_reason"],
+                "source_ref": task_payload["source_ref"],
+            },
+        )
+        self.session.execute(
+            insert_stmt.on_conflict_do_update(
+                index_elements=["id"],
+                set_={
+                    "source": insert_stmt.excluded.source,
+                    "source_ref": insert_stmt.excluded.source_ref,
+                    "task_type": insert_stmt.excluded.task_type,
+                    "council_mode": insert_stmt.excluded.council_mode,
+                    "mode_reason": insert_stmt.excluded.mode_reason,
+                    "status": insert_stmt.excluded.status,
+                    "state_summary": insert_stmt.excluded.state_summary,
+                },
+            )
         )
         self.session.flush()
 
