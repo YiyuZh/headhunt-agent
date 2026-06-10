@@ -186,9 +186,21 @@ class FeishuCallbackVerifier:
             if not self.encrypt_key:
                 raise FeishuCallbackConfigurationError("FEISHU_ENCRYPT_KEY is required")
             if not signature_valid:
-                raise FeishuCallbackVerificationError("Feishu signature headers are required")
+                self._verify_token(payload, is_challenge=is_challenge)
+                return self._verified_callback(payload, raw_body, is_challenge=False)
 
         self._verify_token(payload, is_challenge=is_challenge)
+
+        return self._verified_callback(payload, raw_body, is_challenge=is_challenge)
+
+    def _verified_callback(
+        self,
+        payload: dict[str, Any],
+        raw_body: bytes,
+        *,
+        is_challenge: bool,
+    ) -> VerifiedFeishuCallback:
+        challenge = payload.get("challenge")
 
         header = _payload_header(payload)
         event = _payload_event(payload)

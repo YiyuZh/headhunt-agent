@@ -345,7 +345,7 @@ def test_feishu_card_action_accepts_encrypted_url_verification_challenge() -> No
     assert response.json() == {"challenge": "card-url-check"}
 
 
-def test_feishu_card_action_rejects_missing_signature_headers() -> None:
+def test_feishu_card_action_accepts_token_verified_payload_without_signature_headers() -> None:
     app = create_app(
         settings=Settings(
             feishu_verification_token="test-token",
@@ -368,8 +368,37 @@ def test_feishu_card_action_rejects_missing_signature_headers() -> None:
         },
     )
 
+    assert response.status_code == 200
+    assert response.json() == {
+        "toast": {"type": "info", "content": "已确认，正在继续任务"}
+    }
+
+
+def test_feishu_card_action_rejects_token_verified_fallback_with_wrong_token() -> None:
+    app = create_app(
+        settings=Settings(
+            feishu_verification_token="test-token",
+            feishu_encrypt_key="encrypt-key",
+        )
+    )
+    app.dependency_overrides[get_feishu_callback_service] = FakeFeishuCallbackService
+    client = TestClient(app)
+
+    response = client.post(
+        "/feishu/card-actions",
+        json={
+            "schema": "2.0",
+            "header": {
+                "event_id": "card_evt_1",
+                "event_type": "card.action.trigger",
+                "token": "wrong-token",
+            },
+            "event": {"action": {"value": {"idempotency_key": "card-action-1"}}},
+        },
+    )
+
     assert response.status_code == 401
-    assert "signature headers" in response.json()["detail"]
+    assert "verification token" in response.json()["detail"]
 
 
 def test_feishu_card_action_rejects_stale_signature_timestamp() -> None:
