@@ -324,8 +324,14 @@ class FeishuCallbackVerifier:
     def _verify_token(self, payload: dict[str, Any], *, is_challenge: bool) -> None:
         actual = _callback_token(payload)
         if self.verification_token:
-            if not actual or not hmac.compare_digest(actual, self.verification_token):
-                raise FeishuCallbackVerificationError("Invalid Feishu verification token")
+            if not actual:
+                raise FeishuCallbackVerificationError(
+                    "Invalid Feishu verification token: missing callback token"
+                )
+            if not hmac.compare_digest(actual, self.verification_token):
+                raise FeishuCallbackVerificationError(
+                    "Invalid Feishu verification token: callback token mismatch"
+                )
             return
 
         if not is_challenge:

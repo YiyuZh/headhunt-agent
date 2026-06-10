@@ -145,4 +145,4 @@ def test_feishu_card_action_disabled_until_idempotent_resume_exists() -> None:
     response = client.post("/feishu/card-actions", json={"action": {"idempotency_key": "k"}})
 
     assert response.status_code == 503
-    assert "FEISHU_ENCRYPT_KEY" in response.json()["detail"]
+    assert "FEISHU_VERIFICATION_TOKEN" in response.json()["detail"]
