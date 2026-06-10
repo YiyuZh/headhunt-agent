@@ -116,6 +116,17 @@ def calculate_feishu_signature(
     return hashlib.sha256(sign_bytes).hexdigest()
 
 
+def calculate_feishu_card_signature(
+    *,
+    timestamp: str,
+    nonce: str,
+    verification_token: str,
+    raw_body: bytes,
+) -> str:
+    sign_bytes = (timestamp + nonce + verification_token).encode("utf-8") + raw_body
+    return hashlib.sha1(sign_bytes).hexdigest()
+
+
 class FeishuCallbackVerifier:
     def __init__(self, settings: Settings):
         self.verification_token = _secret_value(settings.feishu_verification_token)
@@ -176,20 +187,19 @@ class FeishuCallbackVerifier:
         headers: Headers | dict[str, str],
     ) -> VerifiedFeishuCallback:
         body = _loads_json(raw_body)
-        signature_valid = self._validate_signature_if_present(raw_body, headers)
+        signature_valid = self._validate_card_signature_if_present(raw_body, headers)
         payload = self._decrypt_if_needed(body)
 
         challenge = payload.get("challenge")
         is_challenge = isinstance(challenge, str)
 
         if not is_challenge:
-            if not self.encrypt_key:
-                raise FeishuCallbackConfigurationError("FEISHU_ENCRYPT_KEY is required")
             if not signature_valid:
                 self._verify_token(payload, is_challenge=is_challenge)
                 return self._verified_callback(payload, raw_body, is_challenge=False)
 
-        self._verify_token(payload, is_challenge=is_challenge)
+        if not signature_valid or _callback_token(payload):
+            self._verify_token(payload, is_challenge=is_challenge)
 
         return self._verified_callback(payload, raw_body, is_challenge=is_challenge)
 
@@ -259,6 +269,31 @@ class FeishuCallbackVerifier:
             raise FeishuCallbackVerificationError("Invalid Feishu callback signature")
         return True
 
+    def _validate_card_signature_if_present(
+        self,
+        raw_body: bytes,
+        headers: Headers | dict[str, str],
+    ) -> bool:
+        if not self.verification_token:
+            return False
+
+        timestamp = headers.get(FEISHU_TIMESTAMP_HEADER)
+        nonce = headers.get(FEISHU_NONCE_HEADER)
+        expected = headers.get(FEISHU_SIGNATURE_HEADER)
+        if not (timestamp and nonce and expected):
+            return False
+
+        _validate_timestamp_window(timestamp)
+        actual = calculate_feishu_card_signature(
+            timestamp=timestamp,
+            nonce=nonce,
+            verification_token=self.verification_token,
+            raw_body=raw_body,
+        )
+        if not hmac.compare_digest(actual, expected):
+            raise FeishuCallbackVerificationError("Invalid Feishu card callback signature")
+        return True
+
     def _decrypt_if_needed(self, body: dict[str, Any]) -> dict[str, Any]:
         encrypted = body.get("encrypt")
         if not isinstance(encrypted, str):
@@ -278,7 +313,7 @@ class FeishuCallbackVerifier:
             raise FeishuCallbackVerificationError("Failed to decrypt Feishu callback") from exc
 
     def _verify_token(self, payload: dict[str, Any], *, is_challenge: bool) -> None:
-        actual = _first_str(payload.get("token"), _payload_header(payload).get("token"))
+        actual = _callback_token(payload)
         if self.verification_token:
             if not actual or not hmac.compare_digest(actual, self.verification_token):
                 raise FeishuCallbackVerificationError("Invalid Feishu verification token")
@@ -545,6 +580,10 @@ def _identity_type_str(value: Any) -> str | None:
     if normalized in {"open_id", "user_id", "union_id"}:
         return normalized
     raise FeishuCallbackPayloadError("Feishu model setup owner id type is invalid")
+
+
+def _callback_token(payload: dict[str, Any]) -> str | None:
+    return _first_str(payload.get("token"), _payload_header(payload).get("token"))
 
 
 def _secret_value(secret: SecretStr | None) -> str | None:

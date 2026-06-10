@@ -15,6 +15,7 @@ from app.feishu.callbacks import (
     FeishuCallbackPayloadError,
     FeishuCallbackVerificationError,
     FeishuCallbackVerifier,
+    calculate_feishu_card_signature,
     calculate_feishu_signature,
     parse_card_action_command,
     parse_model_profile_setup_command,
@@ -25,14 +26,14 @@ from app.main import create_app
 
 
 def _signed_card_headers(
-    raw_body: bytes, *, encrypt_key: str = "encrypt-key"
+    raw_body: bytes, *, token: str = "test-token"
 ) -> dict[str, str]:
     timestamp = str(int(datetime.now(UTC).timestamp()))
     nonce = "nonce"
-    signature = calculate_feishu_signature(
+    signature = calculate_feishu_card_signature(
         timestamp=timestamp,
         nonce=nonce,
-        encrypt_key=encrypt_key,
+        verification_token=token,
         raw_body=raw_body,
     )
     return {
@@ -43,10 +44,17 @@ def _signed_card_headers(
     }
 
 
-def _legacy_sha1_card_headers(raw_body: bytes, *, token: str = "test-token") -> dict[str, str]:
+def _event_style_card_headers(
+    raw_body: bytes, *, encrypt_key: str = "encrypt-key"
+) -> dict[str, str]:
     timestamp = str(int(datetime.now(UTC).timestamp()))
     nonce = "nonce"
-    signature = hashlib.sha1((timestamp + nonce + token).encode("utf-8") + raw_body).hexdigest()
+    signature = calculate_feishu_signature(
+        timestamp=timestamp,
+        nonce=nonce,
+        encrypt_key=encrypt_key,
+        raw_body=raw_body,
+    )
     return {
         "Content-Type": "application/json",
         "X-Lark-Request-Timestamp": timestamp,
@@ -444,7 +452,7 @@ def test_feishu_card_action_rejects_stale_signature_timestamp() -> None:
     assert "timestamp" in response.json()["detail"]
 
 
-def test_feishu_card_action_rejects_legacy_sha1_token_signature() -> None:
+def test_feishu_card_action_rejects_event_style_encrypt_key_signature() -> None:
     app = create_app(
         settings=Settings(
             feishu_verification_token="test-token",
@@ -478,7 +486,7 @@ def test_feishu_card_action_rejects_legacy_sha1_token_signature() -> None:
     response = client.post(
         "/feishu/card-actions",
         content=body,
-        headers=_legacy_sha1_card_headers(body),
+        headers=_event_style_card_headers(body),
     )
 
     assert response.status_code == 401
