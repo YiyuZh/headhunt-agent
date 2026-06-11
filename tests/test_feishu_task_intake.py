@@ -10,6 +10,7 @@ from app.feishu.task_intake import (
     parse_task_intake,
     parse_task_intake_with_llm,
 )
+from app.gateways.llm import LLMGatewayError
 from app.policy.engine import PolicyEngine
 
 
@@ -121,6 +122,49 @@ def test_task_intake_llm_parser_rejects_empty_json_object() -> None:
     assert llm.calls == 2
 
 
+def test_task_intake_parser_uses_bracketed_rules_after_llm_json_failure() -> None:
+    intake = parse_task_intake(_bracketed_message_payload(), tenant_key="tenant_1")
+    llm = FakeTaskIntakeLLM(
+        LLMGatewayError("LLM structured output is not valid JSON"),
+    )
+
+    parsed = parse_task_intake_with_llm(
+        intake,
+        llm,
+        model_profile_id=uuid4(),
+    )
+    task_plan = create_task_plan(parsed, PolicyEngine())
+
+    assert parsed.parser_status == "rule_parsed_after_llm_failed"
+    assert parsed.structured_fields["task"] == "新建岗位，做岗位校准和人才地图"
+    assert parsed.structured_fields["project"] == "测试项目-北京 AI 产品经理"
+    assert parsed.structured_fields["role"] == "AI 产品经理"
+    assert parsed.structured_fields["location"] == "北京"
+    assert parsed.structured_fields["must_have"] == [
+        "AI 产品经验",
+        "B 端产品经验",
+        "能和算法/工程协作",
+    ]
+    assert parsed.structured_fields["deliverables"] == [
+        "岗位校准",
+        "人才地图方向",
+        "候选人筛选标准",
+        "需要追问客户的问题",
+    ]
+    assert task_plan.task_type == "talent_mapping"
+
+
+def test_task_intake_parser_does_not_rule_parse_unlabeled_text_after_llm_json_failure() -> None:
+    intake = parse_task_intake(_message_payload(), tenant_key="tenant_1")
+
+    with pytest.raises(LLMGatewayError, match="not valid JSON"):
+        parse_task_intake_with_llm(
+            intake,
+            FakeTaskIntakeLLM(LLMGatewayError("LLM structured output is not valid JSON")),
+            model_profile_id=uuid4(),
+        )
+
+
 def test_task_intake_llm_parser_retries_schema_error_once_then_succeeds() -> None:
     intake = parse_task_intake(_message_payload(), tenant_key="tenant_1")
     llm = FakeTaskIntakeLLM([{}, None])
@@ -165,6 +209,30 @@ def test_task_intake_llm_parser_rejects_schema_shaped_but_empty_task() -> None:
         )
 
 
+def test_failed_parser_status_line_does_not_claim_rule_fallback() -> None:
+    card = build_task_confirmation_card(
+        thread_id=uuid4(),
+        task_id=uuid4(),
+        task_payload_ref="artifact://task",
+        source_ref="feishu://message/tenant/oc/om",
+        request_text="新建岗位：AI 产品经理",
+        task_type="requisition_calibration",
+        council_mode="lite",
+        mode_reason="常规任务",
+        field_sources=[],
+        missing_fields=[],
+        assumptions=[],
+        structured_fields={},
+        raw_request_text="新建岗位：AI 产品经理",
+        parser_status="llm_failed",
+        parser_error="LLM structured output is not valid JSON",
+    )
+
+    content = card["body"]["elements"][0]["text"]["content"]
+    assert "未启动任务" in content
+    assert "已回退规则解析" not in content
+
+
 def test_graph_dispatch_payload_preserves_byok_scope_after_double_check() -> None:
     payload = {
         "event": {
@@ -197,14 +265,18 @@ def test_graph_dispatch_payload_preserves_byok_scope_after_double_check() -> Non
 
 
 class FakeTaskIntakeLLM:
-    def __init__(self, result: dict | list[dict | None] | None = None):
+    def __init__(self, result: dict | list[dict | None] | Exception | None = None):
         self.result = result
         self.calls = 0
 
     def generate_structured(self, **kwargs):
         self.calls += 1
+        if isinstance(self.result, Exception):
+            raise self.result
         if isinstance(self.result, list):
             result = self.result.pop(0)
+            if isinstance(result, Exception):
+                raise result
             if result is not None:
                 return result
         elif self.result is not None:
@@ -240,3 +312,39 @@ def _message_payload() -> dict:
             },
         }
     }
+
+
+def _bracketed_message_payload() -> dict:
+    text = (
+        "@_user_1 @实习生开发猎头agent\n"
+        "【任务】新建岗位，做岗位校准和人才地图\n"
+        "【项目】测试项目-北京 AI 产品经理\n"
+        "【岗位】AI 产品经理\n"
+        "【地点】北京\n"
+        "【职级/年限】5-8 年，P6/P7\n"
+        "【薪资】40-70K\n"
+        "【JD】负责 AI 产品规划、需求拆解、模型能力落地、跨团队推进\n"
+        "【Must-have】AI 产品经验、B 端产品经验、能和算法/工程协作\n"
+        "【Nice-to-have】大模型应用、智能客服/知识库/Agent 产品经验\n"
+        "【目标公司】字节、百度、阿里、腾讯、美团、快手\n"
+        "【排除公司】暂不排除\n"
+        "【交付物】岗位校准、人才地图方向、候选人筛选标准、需要追问客户的问题\n"
+        "【限制】不要自动外部触达，不要自动写入业务表，"
+        "所有业务动作先给我确认 请走三省六部完整会审。"
+    )
+    return {
+        "event": {
+            "sender": {"sender_id": {"open_id": "ou_1"}},
+            "message": {
+                "message_id": "om_1",
+                "chat_id": "oc_1",
+                "content": json_payload(text),
+            },
+        }
+    }
+
+
+def json_payload(text: str) -> str:
+    import json
+
+    return json.dumps({"text": text}, ensure_ascii=False)

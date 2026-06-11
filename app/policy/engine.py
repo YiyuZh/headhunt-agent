@@ -82,10 +82,12 @@ class PolicyEngine:
 
     @staticmethod
     def _classify_task(text: str) -> str:
-        if "候选人" in text or "筛选" in text:
-            return "candidate_screening"
         if "人才地图" in text or "Mapping" in text or "mapping" in text:
             return "talent_mapping"
+        if "新建岗位" in text or "岗位校准" in text:
+            return "requisition_calibration"
+        if "候选人" in text or "筛选" in text:
+            return "candidate_screening"
         if "报告" in text or "话术" in text:
             return "report_draft"
         if "复盘" in text or "记忆" in text:

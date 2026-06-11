@@ -3,7 +3,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import and_, insert, or_, select, update
+from sqlalchemy import and_, case, insert, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -724,6 +724,16 @@ def build_claimable_outbox_query(current_time: datetime):
         select(FeishuOutbox)
         .where(or_(pending_due, expired_claim))
         .order_by(
+            case(
+                (
+                    FeishuOutbox.kind.in_(
+                        ("card_send", "card_update", "task_confirmation_prepare")
+                    ),
+                    0,
+                ),
+                (FeishuOutbox.kind.in_(("bitable_write", "resume")), 1),
+                else_=2,
+            ),
             FeishuOutbox.next_attempt_at.asc(),
             FeishuOutbox.claim_expires_at.asc().nulls_last(),
             FeishuOutbox.created_at.asc(),

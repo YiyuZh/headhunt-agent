@@ -40,6 +40,7 @@ from app.storage.repositories import (
 
 logger = logging.getLogger(__name__)
 TASK_CONFIRMATION_PREPARE_RETRY_SECONDS = 120
+CONFIRMABLE_TASK_PARSE_STATUSES = {"llm_parsed", "rule_parsed", "rule_parsed_after_llm_failed"}
 
 
 class GraphDispatchHandler(Protocol):
@@ -314,6 +315,13 @@ class FeishuTaskConfirmationPrepareHandler:
         intake,
         model_profile_id: UUID,
     ) -> None:
+        if (
+            intake.parser_status not in CONFIRMABLE_TASK_PARSE_STATUSES
+            or not intake.structured_fields
+        ):
+            raise OutboxDispatchError(
+                f"task confirmation requires parsed structured fields: {intake.parser_status}"
+            )
         task_plan = create_task_plan(intake, self.policy_engine)
         graph_payload = build_graph_dispatch_payload(
             intake=intake,

@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from pydantic import SecretStr
 
 from app.core.config import Settings
@@ -79,25 +81,31 @@ def test_build_feishu_outbox_dispatcher_allows_worker_id_override() -> None:
 
 
 def test_worker_cli_once_prints_dispatch_result(monkeypatch, capsys) -> None:
+    outbox_id = uuid4()
     monkeypatch.setattr(
         worker,
         "dispatch_once",
-        lambda: OutboxDispatchResult(outbox_id=None, kind=None, status="idle"),
+        lambda: OutboxDispatchResult(outbox_id=outbox_id, kind="card_send", status="succeeded"),
     )
     monkeypatch.setattr("sys.argv", ["lietou-outbox-worker", "--once"])
 
     worker.main()
 
-    assert '"status": "idle"' in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert '"status": "succeeded"' in output
+    assert f'"outbox_id": "{outbox_id}"' in output
 
 
 def test_worker_cli_loop_prints_starting_status(monkeypatch, capsys) -> None:
+    outbox_id = uuid4()
     monkeypatch.setattr("sys.argv", ["lietou-outbox-worker"])
     monkeypatch.setattr(worker, "get_settings", lambda: settings(outbox_poll_seconds=0.1))
     monkeypatch.setattr(
         worker,
         "run_worker_loop",
-        lambda **kwargs: iter([OutboxDispatchResult(outbox_id=None, kind=None, status="idle")]),
+        lambda **kwargs: iter(
+            [OutboxDispatchResult(outbox_id=outbox_id, kind="card_send", status="succeeded")]
+        ),
     )
 
     worker.main()
@@ -105,4 +113,5 @@ def test_worker_cli_loop_prints_starting_status(monkeypatch, capsys) -> None:
     output = capsys.readouterr().out
     assert '"status": "starting"' in output
     assert '"worker_id": "worker-test"' in output
-    assert '"status": "idle"' in output
+    assert '"status": "succeeded"' in output
+    assert f'"outbox_id": "{outbox_id}"' in output

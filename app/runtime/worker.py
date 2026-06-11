@@ -97,13 +97,17 @@ def _default_worker_id(settings: Settings) -> str:
     return settings.outbox_worker_id or f"{socket.gethostname()}:feishu-outbox"
 
 
+def _result_json(result: OutboxDispatchResult) -> str:
+    return json.dumps(asdict(result), ensure_ascii=False, default=str)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Feishu durable outbox worker.")
     parser.add_argument("--once", action="store_true", help="Dispatch at most one outbox item.")
     args = parser.parse_args()
 
     if args.once:
-        print(json.dumps(asdict(dispatch_once()), ensure_ascii=False))
+        print(_result_json(dispatch_once()))
         return
 
     settings = get_settings()
@@ -120,4 +124,4 @@ def main() -> None:
         flush=True,
     )
     for result in run_worker_loop(settings=settings, worker_id=worker_id):
-        print(json.dumps(asdict(result), ensure_ascii=False), flush=True)
+        print(_result_json(result), flush=True)

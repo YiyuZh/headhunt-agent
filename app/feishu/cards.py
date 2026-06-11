@@ -361,8 +361,12 @@ def _structured_task_lines(fields: dict[str, Any] | None, fallback: str) -> str:
 def _parser_status_line(status: str | None, error: str | None) -> str:
     if status == "llm_parsed":
         return "大模型已完成结构化解析"
+    if status == "rule_parsed":
+        return "已使用字段规则完成结构化解析"
+    if status == "rule_parsed_after_llm_failed":
+        return f"大模型 JSON 解析失败，已使用字段规则解析：{error or 'unknown'}"
     if status == "llm_failed":
-        return f"大模型解析失败，已回退规则解析：{error or 'unknown'}"
+        return f"大模型解析失败，未启动任务：{error or 'unknown'}"
     if status == "not_run":
         return "未运行大模型解析"
     return status or "unknown"

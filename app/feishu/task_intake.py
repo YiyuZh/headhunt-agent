@@ -1,14 +1,72 @@
 import json
+import re
 from dataclasses import dataclass, replace
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from app.gateways.llm import LLMGatewayError
 from app.policy.engine import PolicyEngine
 from app.schemas.common import CouncilMode
 from app.schemas.context import ContextPack
 from app.schemas.council import CouncilDeliberateRequest, TaskPlan
 
 TASK_INTAKE_SCHEMA_ATTEMPTS = 2
+BRACKETED_TASK_RULE_CONFIDENCE = 0.82
+_BRACKET_FIELD_PATTERN = re.compile(r"【([^】]+)】\s*(.*?)(?=(?:\s|\n)*【[^】]+】|$)", re.S)
+_TASK_FIELD_ALIASES = {
+    "任务": "task",
+    "项目": "project",
+    "岗位": "role",
+    "职位": "role",
+    "地点": "location",
+    "城市": "location",
+    "职级/年限": "level_years",
+    "职级年限": "level_years",
+    "年限": "level_years",
+    "薪资": "compensation",
+    "薪酬": "compensation",
+    "jd": "job_description",
+    "岗位描述": "job_description",
+    "职位描述": "job_description",
+    "must-have": "must_have",
+    "musthave": "must_have",
+    "must": "must_have",
+    "nice-to-have": "nice_to_have",
+    "nicetohave": "nice_to_have",
+    "nice": "nice_to_have",
+    "目标公司": "target_companies",
+    "目标企业": "target_companies",
+    "排除公司": "excluded_companies",
+    "排除企业": "excluded_companies",
+    "交付物": "deliverables",
+    "输出": "deliverables",
+    "限制": "constraints",
+    "约束": "constraints",
+}
+_STRING_RULE_FIELDS = {
+    "task",
+    "project",
+    "role",
+    "location",
+    "level_years",
+    "compensation",
+    "job_description",
+}
+_LIST_RULE_FIELDS = {
+    "must_have",
+    "nice_to_have",
+    "target_companies",
+    "excluded_companies",
+    "deliverables",
+    "constraints",
+}
+_RULE_LIST_SEPARATOR = re.compile(r"[、，,；;\n]+")
+_JSON_OUTPUT_ERROR_MARKERS = (
+    "JSON content",
+    "not valid JSON",
+    "must be a JSON object",
+    "structured JSON text",
+)
 
 
 @dataclass(frozen=True)
@@ -137,23 +195,38 @@ def parse_task_intake_with_llm(
 ) -> FeishuTaskIntake:
     last_schema_error: TaskIntakeSchemaError | None = None
     for _attempt in range(TASK_INTAKE_SCHEMA_ATTEMPTS):
-        result = llm_gateway.generate_structured(
-            agent_name="FeishuTaskIntakeParser",
-            context_pack=_task_intake_context_pack(intake),
-            output_schema=TASK_INTAKE_OUTPUT_SCHEMA,
-            schema_name="feishu_task_intake",
-            max_output_tokens=2400,
-            model_profile_id=model_profile_id,
-            model_owner_user_id=intake.model_owner_user_id,
-            model_guild_id=intake.model_guild_id,
-            model_tenant_id=intake.tenant_key,
-        )
+        try:
+            result = llm_gateway.generate_structured(
+                agent_name="FeishuTaskIntakeParser",
+                context_pack=_task_intake_context_pack(intake),
+                output_schema=TASK_INTAKE_OUTPUT_SCHEMA,
+                schema_name="feishu_task_intake",
+                max_output_tokens=2400,
+                model_profile_id=model_profile_id,
+                model_owner_user_id=intake.model_owner_user_id,
+                model_guild_id=intake.model_guild_id,
+                model_tenant_id=intake.tenant_key,
+            )
+        except LLMGatewayError as exc:
+            if not _is_llm_json_output_error(exc):
+                raise
+            rule_parsed = parse_task_intake_with_rules(intake, parser_error=str(exc))
+            if rule_parsed is not None:
+                return rule_parsed
+            raise
         try:
             structured_fields = validate_task_intake_llm_output(result)
             break
         except TaskIntakeSchemaError as exc:
             last_schema_error = exc
     else:
+        if last_schema_error is not None:
+            rule_parsed = parse_task_intake_with_rules(
+                intake,
+                parser_error=str(last_schema_error),
+            )
+            if rule_parsed is not None:
+                return rule_parsed
         raise last_schema_error or TaskIntakeSchemaError("LLM task intake output is invalid")
 
     confidence = structured_fields.get("confidence")
@@ -167,6 +240,40 @@ def parse_task_intake_with_llm(
             {
                 "field": "structured_fields",
                 "source": "llm.FeishuTaskIntakeParser",
+                "confidence": confidence if isinstance(confidence, int | float) else None,
+            },
+        ],
+        missing_fields=_merge_text_lists(
+            intake.missing_fields,
+            structured_fields.get("missing_fields"),
+        ),
+        assumptions=_merge_text_lists(
+            intake.assumptions,
+            structured_fields.get("assumptions"),
+        ),
+    )
+
+
+def parse_task_intake_with_rules(
+    intake: FeishuTaskIntake,
+    *,
+    parser_error: str | None = None,
+) -> FeishuTaskIntake | None:
+    structured_fields = _parse_bracketed_task_fields(intake.request_text)
+    if structured_fields is None:
+        return None
+
+    confidence = structured_fields.get("confidence")
+    return replace(
+        intake,
+        structured_fields=structured_fields,
+        parser_status="rule_parsed_after_llm_failed" if parser_error else "rule_parsed",
+        parser_error=parser_error[:300] if parser_error else None,
+        field_sources=[
+            *intake.field_sources,
+            {
+                "field": "structured_fields",
+                "source": "rule.bracketed_task_fields",
                 "confidence": confidence if isinstance(confidence, int | float) else None,
             },
         ],
@@ -415,6 +522,59 @@ def validate_task_intake_llm_output(payload: dict[str, Any]) -> dict[str, Any]:
     if not structured_task_summary(structured_fields):
         raise TaskIntakeSchemaError("LLM task intake output contains no usable recruiting fields")
     return structured_fields
+
+
+def _parse_bracketed_task_fields(text: str) -> dict[str, Any] | None:
+    raw_fields: dict[str, str] = {}
+    for label, value in _BRACKET_FIELD_PATTERN.findall(text):
+        key = _TASK_FIELD_ALIASES.get(_normalize_task_label(label))
+        if key:
+            raw_fields[key] = _clean_text(value)
+    if not raw_fields:
+        return None
+
+    payload: dict[str, Any] = {
+        key: raw_fields.get(key, "") for key in sorted(_STRING_RULE_FIELDS)
+    }
+    payload.update({key: _split_rule_list(raw_fields.get(key, "")) for key in _LIST_RULE_FIELDS})
+    payload["missing_fields"] = _rule_missing_fields(payload)
+    payload["assumptions"] = []
+    payload["confidence"] = BRACKETED_TASK_RULE_CONFIDENCE
+
+    try:
+        return validate_task_intake_llm_output(payload)
+    except TaskIntakeSchemaError:
+        return None
+
+
+def _normalize_task_label(label: str) -> str:
+    return re.sub(r"\s+", "", label).strip().strip(":：").lower()
+
+
+def _split_rule_list(value: str) -> list[str]:
+    text = _clean_text(value)
+    if not text:
+        return []
+    return [
+        item
+        for item in (_clean_text(part) for part in _RULE_LIST_SEPARATOR.split(text))
+        if item
+    ]
+
+
+def _rule_missing_fields(payload: dict[str, Any]) -> list[str]:
+    required_labels = {
+        "task": "任务",
+        "project": "项目",
+        "role": "岗位",
+        "location": "地点",
+    }
+    return [label for key, label in required_labels.items() if not _clean_text(payload.get(key))]
+
+
+def _is_llm_json_output_error(exc: LLMGatewayError) -> bool:
+    text = str(exc)
+    return any(marker in text for marker in _JSON_OUTPUT_ERROR_MARKERS)
 
 
 def structured_task_summary(fields: dict[str, Any]) -> str:

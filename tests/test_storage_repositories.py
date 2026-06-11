@@ -33,6 +33,11 @@ def test_claimable_outbox_query_recovers_expired_claims() -> None:
     assert "feishu_outbox.status = 'claimed'" in sql
     assert "feishu_outbox.claim_expires_at IS NOT NULL" in sql
     assert "feishu_outbox.claim_expires_at <=" in sql
+    assert "CASE" in sql
+    assert "task_confirmation_prepare" in sql
+    assert "card_send" in sql
+    assert "card_update" in sql
+    assert "bitable_write" in sql
     assert "FOR UPDATE SKIP LOCKED" in sql
 
 
