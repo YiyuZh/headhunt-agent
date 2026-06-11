@@ -1,7 +1,10 @@
 from uuid import UUID, uuid4
 
+import pytest
+
 from app.feishu.cards import build_task_confirmation_card
 from app.feishu.task_intake import (
+    TaskIntakeSchemaError,
     build_graph_dispatch_payload,
     create_task_plan,
     parse_task_intake,
@@ -105,6 +108,63 @@ def test_task_intake_llm_parser_structures_confirmation_card() -> None:
     assert "新建岗位：北京 AI 产品经理" in content
 
 
+def test_task_intake_llm_parser_rejects_empty_json_object() -> None:
+    intake = parse_task_intake(_message_payload(), tenant_key="tenant_1")
+    llm = FakeTaskIntakeLLM({})
+
+    with pytest.raises(TaskIntakeSchemaError, match="missing required fields"):
+        parse_task_intake_with_llm(
+            intake,
+            llm,
+            model_profile_id=uuid4(),
+        )
+    assert llm.calls == 2
+
+
+def test_task_intake_llm_parser_retries_schema_error_once_then_succeeds() -> None:
+    intake = parse_task_intake(_message_payload(), tenant_key="tenant_1")
+    llm = FakeTaskIntakeLLM([{}, None])
+
+    parsed = parse_task_intake_with_llm(
+        intake,
+        llm,
+        model_profile_id=uuid4(),
+    )
+
+    assert llm.calls == 2
+    assert parsed.parser_status == "llm_parsed"
+    assert parsed.structured_fields["role"] == "AI 产品经理"
+
+
+def test_task_intake_llm_parser_rejects_schema_shaped_but_empty_task() -> None:
+    intake = parse_task_intake(_message_payload(), tenant_key="tenant_1")
+    empty_structured_task = {
+        "task": "",
+        "project": "",
+        "role": "",
+        "location": "",
+        "level_years": "",
+        "compensation": "",
+        "job_description": "",
+        "must_have": [],
+        "nice_to_have": [],
+        "target_companies": [],
+        "excluded_companies": [],
+        "deliverables": [],
+        "constraints": [],
+        "missing_fields": ["岗位信息不足"],
+        "assumptions": [],
+        "confidence": 0.2,
+    }
+
+    with pytest.raises(TaskIntakeSchemaError, match="no usable recruiting fields"):
+        parse_task_intake_with_llm(
+            intake,
+            FakeTaskIntakeLLM(empty_structured_task),
+            model_profile_id=uuid4(),
+        )
+
+
 def test_graph_dispatch_payload_preserves_byok_scope_after_double_check() -> None:
     payload = {
         "event": {
@@ -137,7 +197,18 @@ def test_graph_dispatch_payload_preserves_byok_scope_after_double_check() -> Non
 
 
 class FakeTaskIntakeLLM:
+    def __init__(self, result: dict | list[dict | None] | None = None):
+        self.result = result
+        self.calls = 0
+
     def generate_structured(self, **kwargs):
+        self.calls += 1
+        if isinstance(self.result, list):
+            result = self.result.pop(0)
+            if result is not None:
+                return result
+        elif self.result is not None:
+            return self.result
         return {
             "task": "新建岗位",
             "project": "北京 AI 产品经理",
@@ -156,3 +227,16 @@ class FakeTaskIntakeLLM:
             "assumptions": [],
             "confidence": 0.9,
         }
+
+
+def _message_payload() -> dict:
+    return {
+        "event": {
+            "sender": {"sender_id": {"open_id": "ou_1"}},
+            "message": {
+                "message_id": "om_1",
+                "chat_id": "oc_1",
+                "content": '{"text":"新建岗位：北京 AI 产品经理，生成岗位校准和人才地图"}',
+            },
+        }
+    }

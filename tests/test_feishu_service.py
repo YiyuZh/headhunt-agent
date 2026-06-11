@@ -37,8 +37,9 @@ class FakeProfile:
 
 
 class FakeArtifact:
-    def __init__(self, payload: dict):
+    def __init__(self, payload: dict, sha256_value: str | None = None):
         self.content_json = payload
+        self.sha256 = sha256_value or _payload_hash(payload)
 
 
 class FakeSession:
@@ -68,7 +69,7 @@ class FakeSession:
                     continue
                 params = _params(statement)
                 if params.get("content_ref") == key:
-                    return FakeArtifact(params.get("content_json"))
+                    return FakeArtifact(params.get("content_json"), params.get("sha256"))
         return None
 
     def add(self, item):
@@ -431,6 +432,11 @@ def _callback(payload: dict, *, event_id: str, event_type: str) -> VerifiedFeish
         app_id="cli_1",
         message_id="om_1",
     )
+
+
+def _payload_hash(payload: dict) -> str:
+    raw_text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return sha256(raw_text.encode("utf-8")).hexdigest()
 
 
 def _insert_params_for_table(session: FakeSession, table_name: str) -> dict:

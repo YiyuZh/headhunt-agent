@@ -7,7 +7,11 @@ from app.core.config import Settings
 from app.feishu.dispatcher import OutboxDispatchError
 from app.feishu.gateways import FeishuRateLimitError
 from app.feishu.outbox_handlers import FeishuOutboxHandler, FeishuTaskConfirmationPrepareHandler
-from app.feishu.task_intake import build_task_confirmation_prepare_payload, parse_task_intake
+from app.feishu.task_intake import (
+    TaskIntakeSchemaError,
+    build_task_confirmation_prepare_payload,
+    parse_task_intake,
+)
 from app.gateways.llm import LLMGatewayError
 from app.model_profiles.secrets import ModelSecretService
 from app.runtime.outbox import RuntimeNotReadyError
@@ -333,6 +337,104 @@ def test_task_confirmation_prepare_parse_failure_sends_failure_card_only(
         item["content_ref"].startswith("artifact://feishu-task-intake/")
         for item in payload_repository.stored
     )
+
+
+def test_task_confirmation_prepare_schema_failure_sends_failure_card_only(
+    monkeypatch,
+) -> None:
+    event_payload = _message_event_payload()
+    intake = parse_task_intake(event_payload, tenant_key="tenant_1")
+    model_profile_id = uuid4()
+    payload_repository = FakePayloadRepository({"artifact://event": event_payload})
+    outbox_writer = FakeOutboxWriter()
+    profile = FakeModelProfile(
+        profile_id=model_profile_id,
+        encrypted_api_key=ModelSecretService("test-model-secret").encrypt_api_key("sk-test"),
+    )
+
+    def fake_parse_task_intake_with_llm(received_intake, gateway, *, model_profile_id):
+        raise TaskIntakeSchemaError("LLM task intake output missing required fields: task")
+
+    monkeypatch.setattr(
+        "app.feishu.outbox_handlers.parse_task_intake_with_llm",
+        fake_parse_task_intake_with_llm,
+    )
+    handler = FeishuTaskConfirmationPrepareHandler(
+        payload_repository=payload_repository,
+        outbox_writer=outbox_writer,
+        settings=Settings(model_secret_encryption_key="test-model-secret"),
+        model_profile_repository=FakeModelProfileRepository(profile),
+    )
+
+    handler.prepare_task_confirmation(
+        build_task_confirmation_prepare_payload(
+            chat_id=intake.chat_id,
+            event_payload_ref="artifact://event",
+            model_profile_id=model_profile_id,
+            source_ref=intake.source_ref,
+            tenant_key=intake.tenant_key,
+            model_owner_user_id=intake.model_owner_user_id,
+            model_owner_id_type=intake.model_owner_id_type,
+            model_guild_id=intake.model_guild_id,
+            thread_id=intake.thread_id,
+        ),
+        idempotency_key="prepare-1",
+    )
+
+    assert [item["kind"] for item in outbox_writer.enqueued] == ["card_send"]
+    card_payload = outbox_writer.enqueued[0]["payload"]
+    assert card_payload["card"]["header"]["title"]["content"] == "任务解析失败"
+    assert "task_double_check" not in str(card_payload["card"])
+    assert not any(
+        item["content_ref"].startswith("artifact://feishu-task-intake/")
+        for item in payload_repository.stored
+    )
+
+
+def test_task_confirmation_prepare_retryable_llm_error_raises_without_failure_card(
+    monkeypatch,
+) -> None:
+    event_payload = _message_event_payload()
+    intake = parse_task_intake(event_payload, tenant_key="tenant_1")
+    model_profile_id = uuid4()
+    outbox_writer = FakeOutboxWriter()
+    profile = FakeModelProfile(
+        profile_id=model_profile_id,
+        encrypted_api_key=ModelSecretService("test-model-secret").encrypt_api_key("sk-test"),
+    )
+
+    def fake_parse_task_intake_with_llm(received_intake, gateway, *, model_profile_id):
+        raise LLMGatewayError("DeepSeek Chat Completions API error: HTTP 429")
+
+    monkeypatch.setattr(
+        "app.feishu.outbox_handlers.parse_task_intake_with_llm",
+        fake_parse_task_intake_with_llm,
+    )
+    handler = FeishuTaskConfirmationPrepareHandler(
+        payload_repository=FakePayloadRepository({"artifact://event": event_payload}),
+        outbox_writer=outbox_writer,
+        settings=Settings(model_secret_encryption_key="test-model-secret"),
+        model_profile_repository=FakeModelProfileRepository(profile),
+    )
+
+    with pytest.raises(OutboxDispatchError, match="HTTP 429") as exc_info:
+        handler.prepare_task_confirmation(
+            build_task_confirmation_prepare_payload(
+                chat_id=intake.chat_id,
+                event_payload_ref="artifact://event",
+                model_profile_id=model_profile_id,
+                source_ref=intake.source_ref,
+                tenant_key=intake.tenant_key,
+                model_owner_user_id=intake.model_owner_user_id,
+                model_owner_id_type=intake.model_owner_id_type,
+                model_guild_id=intake.model_guild_id,
+                thread_id=intake.thread_id,
+            ),
+            idempotency_key="prepare-1",
+        )
+
+    assert exc_info.value.retry_after_seconds == 120
+    assert outbox_writer.enqueued == []
 
 
 def test_outbox_handler_writes_bitable_with_client_token() -> None:

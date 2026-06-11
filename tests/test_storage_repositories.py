@@ -13,6 +13,7 @@ from app.storage.repositories import (
     FeishuOutboxWriteRepository,
     InvalidHumanApprovalError,
     OutboxPayloadConflictError,
+    PayloadRepository,
     _is_unique_violation,
     build_claimable_outbox_query,
 )
@@ -80,7 +81,11 @@ class FakeOutboxSession:
         return FakeResult(None)
 
     def get(self, model, key):
-        if model is ArtifactBlob and self.existing_outbox.payload_ref == key:
+        if (
+            model is ArtifactBlob
+            and self.existing_outbox is not None
+            and self.existing_outbox.payload_ref == key
+        ):
             return self.existing_payload
         return None
 
@@ -119,6 +124,49 @@ def test_outbox_writer_rejects_same_idempotency_key_with_different_payload() -> 
             idempotency_key="idem-1",
             payload={"message": "new"},
             content_ref="artifact://outbox/new",
+        )
+
+
+class FakePayloadSession:
+    def __init__(self, existing_payload=None):
+        self.existing_payload = existing_payload
+        self.executed = []
+
+    def get(self, model, key):
+        if model is ArtifactBlob:
+            return self.existing_payload
+        return None
+
+    def execute(self, statement):
+        self.executed.append(statement)
+        return FakeResult(None)
+
+
+def test_payload_repository_reuses_same_content_ref_with_same_payload_hash() -> None:
+    payload = {"message": "same"}
+    session = FakePayloadSession(existing_payload=FakeArtifactBlob(_payload_hash(payload)))
+    raw_text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    result = PayloadRepository(session).store_json_payload(
+        content_ref="artifact://fixed",
+        payload=payload,
+        raw_text=raw_text,
+        sha256=_payload_hash(payload),
+    )
+
+    assert result == "artifact://fixed"
+    assert session.executed == []
+
+
+def test_payload_repository_rejects_same_content_ref_with_different_payload_hash() -> None:
+    session = FakePayloadSession(existing_payload=FakeArtifactBlob(_payload_hash({"old": True})))
+
+    with pytest.raises(OutboxPayloadConflictError, match="different payload"):
+        PayloadRepository(session).store_json_payload(
+            content_ref="artifact://fixed",
+            payload={"new": True},
+            raw_text='{"new":true}',
+            sha256=_payload_hash({"new": True}),
         )
 
 

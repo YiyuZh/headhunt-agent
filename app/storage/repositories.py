@@ -56,6 +56,15 @@ class PayloadRepository:
         raw_text: str,
         sha256: str,
     ) -> str:
+        existing = self.session.get(ArtifactBlob, content_ref)
+        if existing is not None:
+            _ensure_artifact_payload_matches(
+                content_ref=content_ref,
+                existing_sha256=existing.sha256,
+                expected_sha256=sha256,
+            )
+            return content_ref
+
         statement = (
             pg_insert(ArtifactBlob)
             .values(
@@ -68,6 +77,13 @@ class PayloadRepository:
             .on_conflict_do_nothing(index_elements=["content_ref"])
         )
         self.session.execute(statement)
+        existing = self.session.get(ArtifactBlob, content_ref)
+        if existing is not None:
+            _ensure_artifact_payload_matches(
+                content_ref=content_ref,
+                existing_sha256=existing.sha256,
+                expected_sha256=sha256,
+            )
         return content_ref
 
     def get_json_payload(self, content_ref: str) -> dict:
@@ -660,6 +676,18 @@ def _stable_hash(payload: object) -> str:
             "utf-8"
         )
     ).hexdigest()
+
+
+def _ensure_artifact_payload_matches(
+    *,
+    content_ref: str,
+    existing_sha256: str | None,
+    expected_sha256: str,
+) -> None:
+    if existing_sha256 != expected_sha256:
+        raise OutboxPayloadConflictError(
+            f"content_ref {content_ref} already exists with a different payload"
+        )
 
 
 def _validate_bitable_result_lengths(

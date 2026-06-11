@@ -36,17 +36,23 @@ class FeishuOutboxDispatcher:
         worker_id: str,
         max_attempts: int = 5,
         base_retry_seconds: int = 30,
+        claim_lease_seconds: int = 300,
     ):
         self.repository = repository
         self.handler = handler
         self.worker_id = worker_id
         self.max_attempts = max_attempts
         self.base_retry_seconds = base_retry_seconds
+        self.claim_lease_seconds = claim_lease_seconds
 
     def dispatch_once(self, *, now: datetime | None = None) -> OutboxDispatchResult:
         current_time = now or datetime.now(UTC)
         try:
-            item = self.repository.claim_next(worker_id=self.worker_id, now=current_time)
+            item = self.repository.claim_next(
+                worker_id=self.worker_id,
+                lease_seconds=self.claim_lease_seconds,
+                now=current_time,
+            )
             if item is not None:
                 self.repository.commit()
         except Exception:

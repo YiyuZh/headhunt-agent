@@ -27,6 +27,9 @@ class FakeSession:
             return FakeResult(self.select_results.pop(0))
         return FakeResult(self.existing_action)
 
+    def get(self, model, key):
+        return None
+
     def flush(self):
         self.flush_count += 1
 

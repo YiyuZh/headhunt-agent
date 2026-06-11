@@ -21,8 +21,9 @@ class FakeOutboxRepository:
         self.commits = 0
         self.rollbacks = 0
 
-    def claim_next(self, *, worker_id: str, now: datetime):
+    def claim_next(self, *, worker_id: str, lease_seconds: int, now: datetime):
         self.worker_id = worker_id
+        self.lease_seconds = lease_seconds
         self.now = now
         return self.item
 
@@ -81,6 +82,7 @@ def test_dispatcher_marks_success() -> None:
 
     assert result.status == "succeeded"
     assert repository.succeeded == item.id
+    assert repository.lease_seconds == 300
     assert repository.commits == 2
     assert repository.rollbacks == 0
     assert handler.items == [item]
@@ -102,6 +104,20 @@ def test_dispatcher_uses_retry_after_on_failure() -> None:
     assert repository.retry["error"] == "rate limited"
     assert repository.dead_letter is None
     assert repository.commits == 2
+
+
+def test_dispatcher_allows_custom_claim_lease_seconds() -> None:
+    item = FakeOutboxItem(id=uuid4(), kind="task_confirmation_prepare", attempt_count=0)
+    repository = FakeOutboxRepository(item)
+
+    FeishuOutboxDispatcher(
+        repository=repository,
+        handler=SuccessHandler(),
+        worker_id="worker-1",
+        claim_lease_seconds=600,
+    ).dispatch_once(now=datetime(2026, 6, 2, tzinfo=UTC))
+
+    assert repository.lease_seconds == 600
 
 
 def test_dispatcher_marks_dead_letter_after_max_attempts() -> None:

@@ -4,6 +4,8 @@ import logging
 from typing import Any, Protocol
 from uuid import UUID
 
+import httpx
+
 from app.core.config import Settings
 from app.feishu.cards import build_task_confirmation_card, build_task_parse_failed_card
 from app.feishu.dispatcher import OutboxDispatchError
@@ -22,7 +24,7 @@ from app.feishu.task_intake import (
     task_parse_failed_card_ref,
     task_payload_ref,
 )
-from app.gateways.llm import get_gateway_model_info
+from app.gateways.llm import LLMGatewayError, get_gateway_model_info
 from app.model_profiles.gateway_factory import UserModelGatewayFactory
 from app.model_profiles.repository import ModelProfileRepository
 from app.model_profiles.secrets import ModelSecretService
@@ -37,6 +39,7 @@ from app.storage.repositories import (
 )
 
 logger = logging.getLogger(__name__)
+TASK_CONFIRMATION_PREPARE_RETRY_SECONDS = 120
 
 
 class GraphDispatchHandler(Protocol):
@@ -237,6 +240,20 @@ class FeishuTaskConfirmationPrepareHandler:
             )
         except Exception as exc:
             safe_error = _safe_intake_parse_error(exc)
+            if _is_retryable_task_prepare_error(exc):
+                logger.warning(
+                    "Feishu task_confirmation_prepare retryable failure: thread_id=%s "
+                    "source_ref=%s model_profile_id=%s idempotency_key=%s error=%s",
+                    thread_id,
+                    source_ref,
+                    model_profile_id,
+                    idempotency_key,
+                    safe_error,
+                )
+                raise OutboxDispatchError(
+                    safe_error,
+                    retry_after_seconds=_task_prepare_retry_after_seconds(exc),
+                ) from exc
             self._enqueue_parse_failed_card(
                 chat_id=chat_id,
                 thread_id=thread_id,
@@ -445,3 +462,35 @@ def _safe_intake_parse_error(exc: Exception) -> str:
     if "sk-" in text or "api_key" in lowered or "secret" in lowered:
         return f"{exc.__class__.__name__}: model credential rejected or unavailable"
     return f"{exc.__class__.__name__}: {text[:240]}"
+
+
+def _is_retryable_task_prepare_error(exc: Exception) -> bool:
+    if isinstance(exc, httpx.TimeoutException | httpx.TransportError):
+        return True
+    if isinstance(exc, LLMGatewayError):
+        status_code = _http_status_from_error(str(exc))
+        return status_code in {408, 409, 425, 429} or (
+            status_code is not None and 500 <= status_code <= 599
+        )
+    return False
+
+
+def _task_prepare_retry_after_seconds(exc: Exception) -> int:
+    retry_after = getattr(exc, "retry_after_seconds", None)
+    return retry_after if isinstance(retry_after, int) and retry_after > 0 else (
+        TASK_CONFIRMATION_PREPARE_RETRY_SECONDS
+    )
+
+
+def _http_status_from_error(text: str) -> int | None:
+    marker = "HTTP "
+    start = text.find(marker)
+    if start < 0:
+        return None
+    start += len(marker)
+    digits = []
+    for char in text[start:]:
+        if not char.isdigit():
+            break
+        digits.append(char)
+    return int("".join(digits)) if digits else None

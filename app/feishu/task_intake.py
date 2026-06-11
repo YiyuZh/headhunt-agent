@@ -8,6 +8,8 @@ from app.schemas.common import CouncilMode
 from app.schemas.context import ContextPack
 from app.schemas.council import CouncilDeliberateRequest, TaskPlan
 
+TASK_INTAKE_SCHEMA_ATTEMPTS = 2
+
 
 @dataclass(frozen=True)
 class FeishuTaskIntake:
@@ -50,6 +52,10 @@ class FeishuTaskIntake:
     def canonical_request_text(self) -> str:
         summary = structured_task_summary(self.structured_fields)
         return summary or self.request_text
+
+
+class TaskIntakeSchemaError(RuntimeError):
+    pass
 
 
 def parse_task_intake(payload: dict[str, Any], *, tenant_key: str | None) -> FeishuTaskIntake:
@@ -129,18 +135,27 @@ def parse_task_intake_with_llm(
     *,
     model_profile_id: UUID,
 ) -> FeishuTaskIntake:
-    result = llm_gateway.generate_structured(
-        agent_name="FeishuTaskIntakeParser",
-        context_pack=_task_intake_context_pack(intake),
-        output_schema=TASK_INTAKE_OUTPUT_SCHEMA,
-        schema_name="feishu_task_intake",
-        max_output_tokens=2400,
-        model_profile_id=model_profile_id,
-        model_owner_user_id=intake.model_owner_user_id,
-        model_guild_id=intake.model_guild_id,
-        model_tenant_id=intake.tenant_key,
-    )
-    structured_fields = normalize_structured_task_fields(result)
+    last_schema_error: TaskIntakeSchemaError | None = None
+    for _attempt in range(TASK_INTAKE_SCHEMA_ATTEMPTS):
+        result = llm_gateway.generate_structured(
+            agent_name="FeishuTaskIntakeParser",
+            context_pack=_task_intake_context_pack(intake),
+            output_schema=TASK_INTAKE_OUTPUT_SCHEMA,
+            schema_name="feishu_task_intake",
+            max_output_tokens=2400,
+            model_profile_id=model_profile_id,
+            model_owner_user_id=intake.model_owner_user_id,
+            model_guild_id=intake.model_guild_id,
+            model_tenant_id=intake.tenant_key,
+        )
+        try:
+            structured_fields = validate_task_intake_llm_output(result)
+            break
+        except TaskIntakeSchemaError as exc:
+            last_schema_error = exc
+    else:
+        raise last_schema_error or TaskIntakeSchemaError("LLM task intake output is invalid")
+
     confidence = structured_fields.get("confidence")
     return replace(
         intake,
@@ -372,6 +387,36 @@ def normalize_structured_task_fields(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def validate_task_intake_llm_output(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise TaskIntakeSchemaError("LLM task intake output must be a JSON object")
+
+    required = TASK_INTAKE_OUTPUT_SCHEMA["required"]
+    properties = TASK_INTAKE_OUTPUT_SCHEMA["properties"]
+    missing = [key for key in required if key not in payload]
+    if missing:
+        raise TaskIntakeSchemaError(
+            "LLM task intake output missing required fields: " + ", ".join(missing)
+        )
+
+    unexpected = [key for key in payload if key not in properties]
+    if unexpected:
+        raise TaskIntakeSchemaError(
+            "LLM task intake output contains unexpected fields: " + ", ".join(unexpected)
+        )
+
+    invalid = _invalid_task_intake_field_types(payload)
+    if invalid:
+        raise TaskIntakeSchemaError(
+            "LLM task intake output has invalid field types: " + ", ".join(invalid)
+        )
+
+    structured_fields = normalize_structured_task_fields(payload)
+    if not structured_task_summary(structured_fields):
+        raise TaskIntakeSchemaError("LLM task intake output contains no usable recruiting fields")
+    return structured_fields
+
+
 def structured_task_summary(fields: dict[str, Any]) -> str:
     if not fields:
         return ""
@@ -400,6 +445,46 @@ def structured_task_summary(fields: dict[str, Any]) -> str:
         if values:
             lines.append(f"{label}: {'、'.join(values)}")
     return "\n".join(lines)
+
+
+def _invalid_task_intake_field_types(payload: dict[str, Any]) -> list[str]:
+    invalid: list[str] = []
+    string_fields = {
+        "task",
+        "project",
+        "role",
+        "location",
+        "level_years",
+        "compensation",
+        "job_description",
+    }
+    list_fields = {
+        "must_have",
+        "nice_to_have",
+        "target_companies",
+        "excluded_companies",
+        "deliverables",
+        "constraints",
+        "missing_fields",
+        "assumptions",
+    }
+
+    for key in string_fields:
+        if not isinstance(payload.get(key), str):
+            invalid.append(key)
+    for key in list_fields:
+        value = payload.get(key)
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            invalid.append(key)
+
+    confidence = payload.get("confidence")
+    if (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, int | float)
+        or not 0 <= float(confidence) <= 1
+    ):
+        invalid.append("confidence")
+    return sorted(invalid)
 
 
 def _clean_text(value: Any) -> str:
