@@ -1,5 +1,6 @@
 import json
 import logging
+from collections.abc import Callable
 from contextlib import nullcontext
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -22,17 +23,28 @@ class LangGraphOutboxHandler:
         self,
         *,
         graph_factory: RuntimeGraphFactory | None = None,
+        graph_factory_builder: Callable[[], RuntimeGraphFactory] | None = None,
         graph=None,
         use_postgres_checkpointer: bool = True,
         allow_minimal_runtime: bool = False,
         allow_resume_without_interrupt: bool = False,
     ):
-        self.graph_factory = graph_factory or RuntimeGraphFactory()
+        self._graph_factory = graph_factory
+        self._graph_factory_builder = graph_factory_builder
         self.graph = graph
         self.use_postgres_checkpointer = use_postgres_checkpointer
         self.allow_minimal_runtime = allow_minimal_runtime
         self.allow_resume_without_interrupt = allow_resume_without_interrupt
         self.last_result = None
+
+    @property
+    def graph_factory(self) -> RuntimeGraphFactory:
+        if self._graph_factory is None:
+            if self._graph_factory_builder is not None:
+                self._graph_factory = self._graph_factory_builder()
+            else:
+                self._graph_factory = RuntimeGraphFactory()
+        return self._graph_factory
 
     def dispatch_graph(self, payload: dict[str, Any]) -> None:
         if not self._dispatch_runtime_ready():

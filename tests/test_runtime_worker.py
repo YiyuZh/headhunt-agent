@@ -42,6 +42,31 @@ def test_build_feishu_outbox_dispatcher_wires_real_runtime_dependencies() -> Non
     assert graph_factory.action_executor is not None
 
 
+def test_build_feishu_outbox_dispatcher_defers_graph_factory_until_needed(monkeypatch) -> None:
+    calls = []
+
+    class FakeGraphFactory:
+        agent_harness = object()
+        action_gate = object()
+        action_executor = object()
+
+    def fake_build_runtime_graph_factory(**kwargs):
+        calls.append(kwargs)
+        return FakeGraphFactory()
+
+    monkeypatch.setattr(worker, "build_runtime_graph_factory", fake_build_runtime_graph_factory)
+
+    dispatcher = build_feishu_outbox_dispatcher(
+        session=FakeSession(),
+        settings=settings(),
+        use_postgres_checkpointer=False,
+    )
+
+    assert calls == []
+    assert dispatcher.handler.graph_handler.graph_factory.agent_harness is not None
+    assert len(calls) == 1
+
+
 def test_build_feishu_outbox_dispatcher_allows_worker_id_override() -> None:
     dispatcher = build_feishu_outbox_dispatcher(
         session=FakeSession(),
@@ -64,3 +89,20 @@ def test_worker_cli_once_prints_dispatch_result(monkeypatch, capsys) -> None:
     worker.main()
 
     assert '"status": "idle"' in capsys.readouterr().out
+
+
+def test_worker_cli_loop_prints_starting_status(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("sys.argv", ["lietou-outbox-worker"])
+    monkeypatch.setattr(worker, "get_settings", lambda: settings(outbox_poll_seconds=0.1))
+    monkeypatch.setattr(
+        worker,
+        "run_worker_loop",
+        lambda **kwargs: iter([OutboxDispatchResult(outbox_id=None, kind=None, status="idle")]),
+    )
+
+    worker.main()
+
+    output = capsys.readouterr().out
+    assert '"status": "starting"' in output
+    assert '"worker_id": "worker-test"' in output
+    assert '"status": "idle"' in output

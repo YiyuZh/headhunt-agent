@@ -38,12 +38,11 @@ def build_feishu_outbox_dispatcher(
 ) -> FeishuOutboxDispatcher:
     resolved_settings = settings or get_settings()
     auth_provider = FeishuAuthProvider(settings=resolved_settings)
-    graph_factory = build_runtime_graph_factory(
-        session=session,
-        settings=resolved_settings,
-    )
     graph_handler = LangGraphOutboxHandler(
-        graph_factory=graph_factory,
+        graph_factory_builder=lambda: build_runtime_graph_factory(
+            session=session,
+            settings=resolved_settings,
+        ),
         use_postgres_checkpointer=use_postgres_checkpointer,
     )
     payload_repository = PayloadRepository(session)
@@ -107,5 +106,18 @@ def main() -> None:
         print(json.dumps(asdict(dispatch_once()), ensure_ascii=False))
         return
 
-    for result in run_worker_loop():
+    settings = get_settings()
+    worker_id = _default_worker_id(settings)
+    print(
+        json.dumps(
+            {
+                "status": "starting",
+                "worker_id": worker_id,
+                "poll_seconds": settings.outbox_poll_seconds,
+            },
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+    for result in run_worker_loop(settings=settings, worker_id=worker_id):
         print(json.dumps(asdict(result), ensure_ascii=False), flush=True)
