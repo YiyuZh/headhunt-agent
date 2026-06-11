@@ -228,6 +228,33 @@ def test_war_room_graph_uses_agent_harness_when_wired() -> None:
     assert any(item["summary"].endswith("via harness") for item in result["artifacts"])
 
 
+def test_war_room_graph_preserves_byok_scope_across_subgraphs() -> None:
+    harness = FakeHarness()
+    graph = build_headhunter_war_room_graph(agent_harness=harness)
+    model_profile_id = "4c035461-6b47-4b92-a982-7b7eac099c36"
+
+    graph.invoke(
+        {
+            "thread_id": "2c035461-6b47-4b92-a982-7b7eac099c36",
+            "source": "feishu",
+            "source_ref": "feishu://message/tenant_1/oc_1/om_1",
+            "user_input": "请为 AI 平台负责人岗位做人才地图 mapping，包含目标公司和 title 变体",
+            "model_profile_id": model_profile_id,
+            "model_owner_user_id": "ou_1",
+            "model_guild_id": "oc_1",
+            "model_tenant_id": "tenant_1",
+            "embedding_profile_id": "5c035461-6b47-4b92-a982-7b7eac099c36",
+        },
+        config={"configurable": {"thread_id": "2c035461-6b47-4b92-a982-7b7eac099c36"}},
+    )
+
+    assert harness.tasks
+    assert all(str(task.model_profile_id) == model_profile_id for task in harness.tasks)
+    assert all(task.model_owner_user_id == "ou_1" for task in harness.tasks)
+    assert all(task.model_guild_id == "oc_1" for task in harness.tasks)
+    assert all(task.model_tenant_id == "tenant_1" for task in harness.tasks)
+
+
 def test_war_room_graph_blocks_schema_invalid_artifact_before_action_proposal() -> None:
     harness = MalformedBusinessHarness()
     action_gate = ReusingActionGate()

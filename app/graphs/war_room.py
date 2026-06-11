@@ -243,12 +243,8 @@ def build_council_deliberation_graph(*, agent_harness=None):
 def invoke_council_deliberation_graph(graph, state: RecruitmentState) -> dict[str, Any]:
     result = graph.invoke(
         {
-            "thread_id": state["thread_id"],
+            **_subgraph_runtime_scope(state),
             "task_plan": state["task_plan"],
-            "source": state.get("source", "runtime"),
-            "source_ref": state.get("source_ref"),
-            "user_input": state.get("user_input", ""),
-            "feishu_context": state.get("feishu_context", {}),
         },
         config={"configurable": {"thread_id": state["thread_id"]}},
     )
@@ -290,15 +286,11 @@ def build_business_subgraph(
 def invoke_business_subgraph(graph, state: RecruitmentState) -> dict[str, Any]:
     result = graph.invoke(
         {
-            "thread_id": state["thread_id"],
+            **_subgraph_runtime_scope(state),
             "council_mode": state.get("council_mode"),
             "mode_reason": state.get("mode_reason"),
             "council_decision": state.get("council_decision"),
             "task_plan": state.get("task_plan"),
-            "source": state.get("source", "runtime"),
-            "source_ref": state.get("source_ref"),
-            "user_input": state.get("user_input", ""),
-            "feishu_context": state.get("feishu_context", {}),
             "input_artifact_refs": state.get("artifacts", []),
         },
         config={"configurable": {"thread_id": state["thread_id"]}},
@@ -308,6 +300,21 @@ def invoke_business_subgraph(graph, state: RecruitmentState) -> dict[str, Any]:
         "review_result": result.get("review_result"),
         "review_fix_attempts": result.get("review_fix_attempts", 0),
         "node_history": result.get("node_history", []),
+    }
+
+
+def _subgraph_runtime_scope(state: RecruitmentState) -> dict[str, Any]:
+    return {
+        "thread_id": state["thread_id"],
+        "source": state.get("source", "runtime"),
+        "source_ref": state.get("source_ref"),
+        "user_input": state.get("user_input", ""),
+        "feishu_context": state.get("feishu_context", {}),
+        "model_profile_id": state.get("model_profile_id"),
+        "model_owner_user_id": state.get("model_owner_user_id"),
+        "model_guild_id": state.get("model_guild_id"),
+        "model_tenant_id": state.get("model_tenant_id"),
+        "embedding_profile_id": state.get("embedding_profile_id"),
     }
 
 
